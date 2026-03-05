@@ -15,10 +15,23 @@ class SmfPlayer
 
     void SetSampleRate(float sr);
     void SetLookaheadSamples(uint64_t samples);
+    void SetTempoScale(float scale);
+    void SetTempoScale(float scale, uint64_t sampleNow);
 
     void Start(uint64_t sampleNow);
+    void Stop();
     bool IsPlaying() const;
+    void SeekToSample(uint64_t targetSample, uint64_t nowSample);
     uint32_t RemainingBytes() const;
+    uint64_t SamplesPerQuarter() const;
+    double SamplesPerQuarterF() const { return samplesPerTick_ * double(divisions_); }
+    uint16_t Divisions() const { return divisions_; }
+    uint32_t TempoUsecPerQuarter() const { return tempo_; }
+    uint64_t SamplesFromTicks(uint64_t ticks) const;
+    uint64_t SamplesFromTicksRange(uint64_t startTicks, uint64_t lengthTicks) const;
+    uint8_t TimeSigNumerator() const { return ts_num_; }
+    uint8_t TimeSigDenominator() const { return ts_den_; }
+    const char* GetTrackNameForChannel(uint8_t ch) const;
 
     // Parses ahead and pushes timestamped events
     void Pump(EventQueue<2048>& queue, uint64_t sampleNow);
@@ -38,26 +51,38 @@ class SmfPlayer
         MidiEv   nextEv{};
     };
 
-    bool ParseNextEvent(TrackState& trk, MidiEv& out);
-    bool PrepareNextEvent(TrackState& trk);
+    bool ParseNextEvent(uint16_t trackIndex, TrackState& trk, MidiEv& out);
+    bool PrepareNextEvent(uint16_t trackIndex, TrackState& trk);
     bool ReadTrackByte(TrackState& trk, uint8_t& b);
     bool ReadVarLen(TrackState& trk, uint32_t& value);
     bool SkipBytes(TrackState& trk, uint32_t count);
     bool SeekTrackHeader(uint32_t& length);
     void UpdateSamplesPerTick();
+    void BuildTempoMap();
 
     FIL      file_;
     bool     open_            = false;
     bool     playing_         = false;
     uint16_t trackCount_      = 0;
     static constexpr uint16_t kMaxTracks = 16;
+    static constexpr uint16_t kTrackNameMax = 24;
     TrackState tracks_[kMaxTracks]{};
+    char     trackNames_[kMaxTracks][kTrackNameMax]{};
+    bool     trackHasName_[kMaxTracks]{};
+    int8_t   trackChannel_[kMaxTracks]{};
 
     float    sr_              = 48000.0f;
     uint64_t lookahead_       = 0;
     uint64_t startSample_     = 0;
+    float    tempo_scale_     = 1.0f;
 
     uint16_t divisions_       = 480;
     uint32_t tempo_           = 500000;
     double   samplesPerTick_  = 0.0;
+    uint8_t  ts_num_          = 4;
+    uint8_t  ts_den_          = 4;
+    static constexpr uint16_t kMaxTempoPoints = 256;
+    uint16_t tempoCount_      = 0;
+    uint32_t tempoTicks_[kMaxTempoPoints]{};
+    uint32_t tempoUsec_[kMaxTempoPoints]{};
 };

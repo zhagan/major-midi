@@ -15,7 +15,7 @@
    [OPTIONAL] #define TSF_POW, TSF_POWF, TSF_EXPF, TSF_LOG, TSF_TAN, TSF_LOG10, TSF_SQRT to avoid math.h
 
    NOT YET IMPLEMENTED
-     - Support for ChorusEffectsSend and ReverbEffectsSend generators
+     - Chorus/Reverb effects processing (generators are parsed/stored)
      - Better low-pass filter without lowering performance too much
      - Support for modulators
 
@@ -194,6 +194,7 @@ TSFDEF int tsf_active_voice_count(tsf* f);
 //   flag_mixing: if 0 clear the buffer first, otherwise mix into existing data
 TSFDEF void tsf_render_short(tsf* f, short* buffer, int samples, int flag_mixing CPP_DEFAULT0);
 TSFDEF void tsf_render_float(tsf* f, float* buffer, int samples, int flag_mixing CPP_DEFAULT0);
+TSFDEF void tsf_render_float_fx(tsf* f, float* buffer, float* chorus, float* reverb, int samples, int flag_mixing CPP_DEFAULT0);
 
 // Higher level channel based functions, set up channel parameters
 //   channel: channel number
@@ -431,6 +432,7 @@ struct tsf_region
 	unsigned int group, offset, end, loop_start, loop_end;
 	int transpose, tune, pitch_keycenter, pitch_keytrack;
 	float attenuation, pan;
+	float chorusSend, reverbSend;
 	struct tsf_envelope ampenv, modenv;
 	int initialFilterQ, initialFilterFc;
 	int modEnvToPitch, modEnvToFilterFc, modLfoToFilterFc, modLfoToVolume;
@@ -455,6 +457,7 @@ struct tsf_voice
 	double pitchInputTimecents, pitchOutputFactor;
 	double sourceSamplePosition;
 	float  noteGainDB, panFactorLeft, panFactorRight;
+	float  chorusSend, reverbSend;
 	unsigned int playIndex, loopStart, loopEnd;
 	struct tsf_voice_envelope ampenv, modenv;
 	struct tsf_voice_lowpass lowpass;
@@ -465,6 +468,7 @@ struct tsf_channel
 {
 	unsigned short presetIndex, bank, pitchWheel, midiPan, midiVolume, midiExpression, midiRPN, midiData : 14, sustain : 1;
 	float panOffset, gainDB, pitchRange, tuning;
+	float chorusSend, reverbSend;
 };
 
 struct tsf_channels
@@ -567,8 +571,8 @@ static void tsf_region_operator(struct tsf_region* region, tsf_u16 genOper, unio
 		{ GEN_UINT_ADD15                   , _TSFREGIONOFFSET(unsigned int, end                  ) }, //12 EndAddrsCoarseOffset
 		{ GEN_INT   | GEN_INT_LIMIT960     , _TSFREGIONOFFSET(         int, modLfoToVolume       ) }, //13 ModLfoToVolume
 		{ 0                                , (0                                                  ) }, //   Unused
-		{ 0                                , (0                                                  ) }, //15 ChorusEffectsSend (unsupported)
-		{ 0                                , (0                                                  ) }, //16 ReverbEffectsSend (unsupported)
+		{ GEN_FLOAT | GEN_FLOAT_MAX1000    , _TSFREGIONOFFSET(       float, chorusSend           ) }, //15 ChorusEffectsSend
+		{ GEN_FLOAT | GEN_FLOAT_MAX1000    , _TSFREGIONOFFSET(       float, reverbSend           ) }, //16 ReverbEffectsSend
 		{ GEN_FLOAT | GEN_FLOAT_LIMITPAN   , _TSFREGIONOFFSET(       float, pan                  ) }, //17 Pan
 		{ 0                                , (0                                                  ) }, //   Unused
 		{ 0                                , (0                                                  ) }, //   Unused
@@ -1217,12 +1221,22 @@ static void tsf_voice_calcpitchratio(struct tsf_voice* v, float pitchShift, floa
 	v->pitchOutputFactor = v->region->sample_rate / (tsf_timecents2Secsd(v->region->pitch_keycenter * 100.0) * outSampleRate);
 }
 
-static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, int numSamples)
+static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, float* chorusBuffer, float* reverbBuffer, int numSamples)
 {
 	struct tsf_region* region = v->region;
 	float* input = f->fontSamples;
 	float* outL = outputBuffer;
 	float* outR = (f->outputmode == TSF_STEREO_UNWEAVED ? outL + numSamples : TSF_NULL);
+	float* outChL = chorusBuffer;
+	float* outChR = (chorusBuffer && f->outputmode == TSF_STEREO_UNWEAVED ? outChL + numSamples : TSF_NULL);
+	float* outRvL = reverbBuffer;
+	float* outRvR = (reverbBuffer && f->outputmode == TSF_STEREO_UNWEAVED ? outRvL + numSamples : TSF_NULL);
+	float chorusSend = v->chorusSend;
+	float reverbSend = v->reverbSend;
+	if (chorusSend < 0.0f) chorusSend = 0.0f; else if (chorusSend > 1.0f) chorusSend = 1.0f;
+	if (reverbSend < 0.0f) reverbSend = 0.0f; else if (reverbSend > 1.0f) reverbSend = 1.0f;
+	TSF_BOOL doChorus = (outChL && chorusSend > 0.0f);
+	TSF_BOOL doReverb = (outRvL && reverbSend > 0.0f);
 
 	// Cache some values, to give them at least some chance of ending up in registers.
 	TSF_BOOL updateModEnv = (region->modEnvToPitch || region->modEnvToFilterFc);
@@ -1299,6 +1313,20 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 
 					*outL++ += val * gainLeft;
 					*outL++ += val * gainRight;
+					if (outChL)
+					{
+						if (doChorus) { *outChL += val * gainLeft * chorusSend; }
+						outChL++;
+						if (doChorus) { *outChL += val * gainRight * chorusSend; }
+						outChL++;
+					}
+					if (outRvL)
+					{
+						if (doReverb) { *outRvL += val * gainLeft * reverbSend; }
+						outRvL++;
+						if (doReverb) { *outRvL += val * gainRight * reverbSend; }
+						outRvL++;
+					}
 
 					// Next sample.
 					tmpSourceSamplePosition += pitchRatio;
@@ -1320,6 +1348,20 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 
 					*outL++ += val * gainLeft;
 					*outR++ += val * gainRight;
+					if (outChL)
+					{
+						if (doChorus) { *outChL += val * gainLeft * chorusSend; }
+						outChL++;
+						if (doChorus) { *outChR += val * gainRight * chorusSend; }
+						outChR++;
+					}
+					if (outRvL)
+					{
+						if (doReverb) { *outRvL += val * gainLeft * reverbSend; }
+						outRvL++;
+						if (doReverb) { *outRvR += val * gainRight * reverbSend; }
+						outRvR++;
+					}
 
 					// Next sample.
 					tmpSourceSamplePosition += pitchRatio;
@@ -1339,6 +1381,16 @@ static void tsf_voice_render(tsf* f, struct tsf_voice* v, float* outputBuffer, i
 					if (tmpLowpass.active) val = tsf_voice_lowpass_process(&tmpLowpass, val);
 
 					*outL++ += val * gainMono;
+					if (outChL)
+					{
+						if (doChorus) { *outChL += val * gainMono * chorusSend; }
+						outChL++;
+					}
+					if (outRvL)
+					{
+						if (doReverb) { *outRvL += val * gainMono * reverbSend; }
+						outRvL++;
+					}
 
 					// Next sample.
 					tmpSourceSamplePosition += pitchRatio;
@@ -1617,6 +1669,11 @@ TSFDEF int tsf_note_on(tsf* f, int preset_index, int key, float vel)
 		voice->playIndex = voicePlayIndex;
 		voice->heldSustain = 0;
 		voice->noteGainDB = f->globalGainDB - region->attenuation - tsf_gainToDecibels(1.0f / vel);
+		// Default sends from region (0..1000 -> 0..1)
+		voice->chorusSend = region->chorusSend * 0.001f;
+		voice->reverbSend = region->reverbSend * 0.001f;
+		if (voice->chorusSend < 0.0f) voice->chorusSend = 0.0f; else if (voice->chorusSend > 1.0f) voice->chorusSend = 1.0f;
+		if (voice->reverbSend < 0.0f) voice->reverbSend = 0.0f; else if (voice->reverbSend > 1.0f) voice->reverbSend = 1.0f;
 
 		if (f->channels)
 		{
@@ -1741,7 +1798,22 @@ TSFDEF void tsf_render_float(tsf* f, float* buffer, int samples, int flag_mixing
 	if (!flag_mixing) TSF_MEMSET(buffer, 0, (f->outputmode == TSF_MONO ? 1 : 2) * sizeof(float) * samples);
 	for (; v != vEnd; v++)
 		if (v->playingPreset != -1)
-			tsf_voice_render(f, v, buffer, samples);
+			tsf_voice_render(f, v, buffer, TSF_NULL, TSF_NULL, samples);
+}
+
+TSFDEF void tsf_render_float_fx(tsf* f, float* buffer, float* chorus, float* reverb, int samples, int flag_mixing)
+{
+	struct tsf_voice *v = f->voices, *vEnd = v + f->voiceNum;
+	int channels = (f->outputmode == TSF_MONO ? 1 : 2);
+	if (!flag_mixing)
+	{
+		TSF_MEMSET(buffer, 0, channels * sizeof(float) * samples);
+		if (chorus) TSF_MEMSET(chorus, 0, channels * sizeof(float) * samples);
+		if (reverb) TSF_MEMSET(reverb, 0, channels * sizeof(float) * samples);
+	}
+	for (; v != vEnd; v++)
+		if (v->playingPreset != -1)
+			tsf_voice_render(f, v, buffer, chorus, reverb, samples);
 }
 
 static void tsf_channel_setup_voice(tsf* f, struct tsf_voice* v)
@@ -1750,6 +1822,15 @@ static void tsf_channel_setup_voice(tsf* f, struct tsf_voice* v)
 	float newpan = v->region->pan + c->panOffset;
 	v->playingChannel = f->channels->activeChannel;
 	v->noteGainDB += c->gainDB;
+	// Combine region and channel sends (clamped 0..1)
+	{
+		float rs = v->region->reverbSend * 0.001f + c->reverbSend;
+		float cs = v->region->chorusSend * 0.001f + c->chorusSend;
+		if (rs < 0.0f) rs = 0.0f; else if (rs > 1.0f) rs = 1.0f;
+		if (cs < 0.0f) cs = 0.0f; else if (cs > 1.0f) cs = 1.0f;
+		v->reverbSend = rs;
+		v->chorusSend = cs;
+	}
 	tsf_voice_calcpitchratio(v, (c->pitchWheel == 8192 ? c->tuning : ((c->pitchWheel / 16383.0f * c->pitchRange * 2.0f) - c->pitchRange + c->tuning)), f->outSampleRate);
 	if      (newpan <= -0.5f) { v->panFactorLeft = 1.0f; v->panFactorRight = 0.0f; }
 	else if (newpan >=  0.5f) { v->panFactorLeft = 0.0f; v->panFactorRight = 1.0f; }
@@ -1788,6 +1869,8 @@ static struct tsf_channel* tsf_channel_init(tsf* f, int channel)
 		c->gainDB = 0.0f;
 		c->pitchRange = 2.0f;
 		c->tuning = 0.0f;
+		c->chorusSend = 0.0f;
+		c->reverbSend = 0.0f;
 	}
 	return &f->channels->channels[channel];
 }
@@ -1994,6 +2077,8 @@ TSFDEF int tsf_channel_midi_control(tsf* f, int channel, int controller, int con
 		case  43 /*EXPRESSION_LSB*/  : c->midiExpression = (unsigned short)((c->midiExpression & 0x3F80) |  control_value);       goto TCMC_SET_VOLUME;
 		case  10 /*PAN_MSB*/         : c->midiPan        = (unsigned short)((c->midiPan        & 0x7F  ) | (control_value << 7)); goto TCMC_SET_PAN;
 		case  42 /*PAN_LSB*/         : c->midiPan        = (unsigned short)((c->midiPan        & 0x3F80) |  control_value);       goto TCMC_SET_PAN;
+		case  91 /*REVERB_SEND*/     : c->reverbSend     = control_value / 127.0f; return 1;
+		case  93 /*CHORUS_SEND*/     : c->chorusSend     = control_value / 127.0f; return 1;
 		case   6 /*DATA_ENTRY_MSB*/  : c->midiData       = (unsigned short)((c->midiData       & 0x7F)   | (control_value << 7)); goto TCMC_SET_DATA;
 		case  38 /*DATA_ENTRY_LSB*/  : c->midiData       = (unsigned short)((c->midiData       & 0x3F80) |  control_value);       goto TCMC_SET_DATA;
 		case   0 /*BANK_SELECT_MSB*/ : c->bank = (unsigned short)(0x8000 | control_value); return 1; //bank select MSB alone acts like LSB
@@ -2011,6 +2096,8 @@ TSFDEF int tsf_channel_midi_control(tsf* f, int channel, int controller, int con
 			c->bank = 0;
 			c->midiRPN = 0xFFFF;
 			c->midiData = 0;
+			c->chorusSend = 0.0f;
+			c->reverbSend = 0.0f;
 			tsf_channel_set_volume(f, channel, 1.0f);
 			tsf_channel_set_pan(f, channel, 0.5f);
 			tsf_channel_set_pitchrange(f, channel, 2.0f);

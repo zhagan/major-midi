@@ -1,8 +1,11 @@
 #include "synth_tsf.h"
 #include <cstdint>
 #include <cstddef>
+#include <cmath>
 
 #include "daisy_patch_sm.h"
+#include "daisysp.h"
+#include "daisysp-lgpl.h"
 
 extern "C"
 {
@@ -10,6 +13,7 @@ extern "C"
 }
 
 using namespace daisy;
+using namespace daisysp;
 
 // -----------------------------
 // Deterministic SDRAM arena for TSF
@@ -45,9 +49,10 @@ class SdramArena
 };
 
 static SdramArena g_arena;
+static bool       g_arena_oom = false;
 
 // Put arena in SDRAM
-static uint8_t DSY_SDRAM_BSS sdram_arena_buf[16 * 1024 * 1024];
+static uint8_t DSY_SDRAM_BSS sdram_arena_buf[56 * 1024 * 1024];
 
 // -----------------------------
 // TinySoundFont config (allocator + no stdio)
@@ -64,7 +69,10 @@ static inline void* ArenaMalloc(size_t bytes)
     const size_t total = sizeof(ArenaHdr) + bytes;
     void*        raw   = g_arena.Alloc(total, 8);
     if(!raw)
+    {
+        g_arena_oom = true;
         return nullptr;
+    }
     auto* h = (ArenaHdr*)raw;
     h->sz   = (uint32_t)bytes;
     return (void*)(h + 1);
@@ -121,6 +129,20 @@ static int TsfSkip(void* data, unsigned int count)
 // -----------------------------
 static tsf* g_tsf = nullptr;
 static FIL  g_sf2file;
+static float g_sample_rate = 48000.0f;
+static Chorus   DSY_SDRAM_BSS g_chorus;
+static ReverbSc DSY_SDRAM_BSS g_reverb;
+static bool    g_fx_init = false;
+static float   g_chorus_wet = 1.0f;
+static float   g_chorus_dry = 0.0f;
+static float   g_chorus_gain = 1.5f;
+static float   g_reverb_wet = 1.0f;
+static float   g_reverb_dry = 0.0f;
+static float   g_reverb_hp_a = 0.0f;
+static float   g_reverb_hp_zl = 0.0f;
+static float   g_reverb_hp_zr = 0.0f;
+static float   g_reverb_hp_xl = 0.0f;
+static float   g_reverb_hp_xr = 0.0f;
 
 bool SynthInit()
 {
@@ -130,7 +152,10 @@ bool SynthInit()
 
 bool SynthLoadSf2(const char* path, float sampleRate, int voices)
 {
+    g_sample_rate = sampleRate;
     g_arena.Reset();
+    g_arena_oom = false;
+    __builtin_memset(sdram_arena_buf, 0, sizeof(sdram_arena_buf));
 
     if(f_open(&g_sf2file, path, FA_READ) != FR_OK)
         return false;
@@ -149,10 +174,51 @@ bool SynthLoadSf2(const char* path, float sampleRate, int voices)
 
     tsf_set_output(g_tsf, TSF_STEREO_INTERLEAVED, sampleRate, 0.0f);
     tsf_set_max_voices(g_tsf, voices);
+    if(!g_fx_init)
+    {
+        g_chorus.Init(sampleRate);
+        g_chorus.SetLfoFreq(0.25f);
+        g_chorus.SetLfoDepth(0.35f);
+        g_chorus.SetDelay(0.2f);
+        g_chorus.SetFeedback(0.05f);
+        g_chorus.SetPan(0.25f, 0.75f);
+
+        g_reverb.Init(sampleRate);
+        g_reverb.SetFeedback(0.85f);
+        g_reverb.SetLpFreq(8000.0f);
+        SynthSetReverbHpFreq(80.0f);
+
+        g_fx_init = true;
+    }
     // Initialize default preset for channels (0-15), with drums on channel 10.
     for(int ch = 0; ch < 16; ch++)
         tsf_channel_set_presetnumber(g_tsf, ch, 0, ch == 9 ? 1 : 0);
     return true;
+}
+
+void SynthUnloadSf2()
+{
+    if(g_tsf)
+    {
+        tsf_close(g_tsf);
+        g_tsf = nullptr;
+    }
+    f_close(&g_sf2file);
+}
+
+size_t SynthArenaUsed()
+{
+    return g_arena.Used();
+}
+
+size_t SynthArenaCap()
+{
+    return g_arena.Cap();
+}
+
+bool SynthArenaOom()
+{
+    return g_arena_oom;
 }
 
 void SynthPanic()
@@ -161,12 +227,12 @@ void SynthPanic()
         tsf_reset(g_tsf);
 }
 
-void SynthNoteOn(uint8_t ch, uint8_t key, uint8_t vel)
+bool SynthNoteOn(uint8_t ch, uint8_t key, uint8_t vel)
 {
     if(!g_tsf)
-        return;
+        return false;
     const float v = (vel <= 1) ? 0.0f : (float)vel / 127.0f;
-    tsf_channel_note_on(g_tsf, (int)ch, (int)key, v);
+    return tsf_channel_note_on(g_tsf, (int)ch, (int)key, v) != 0;
 }
 
 void SynthNoteOff(uint8_t ch, uint8_t key)
@@ -183,6 +249,35 @@ void SynthProgramChange(uint8_t ch, uint8_t program)
     tsf_channel_set_presetnumber(g_tsf, (int)ch, (int)program, ch == 9 ? 1 : 0);
 }
 
+void SynthControlChange(uint8_t ch, uint8_t cc, uint8_t value)
+{
+    if(!g_tsf)
+        return;
+    tsf_channel_midi_control(g_tsf, (int)ch, (int)cc, (int)value);
+}
+
+void SynthPitchBend(uint8_t ch, uint16_t value)
+{
+    if(!g_tsf)
+        return;
+    tsf_channel_set_pitchwheel(g_tsf, (int)ch, (int)value);
+}
+
+void SynthResetChannels()
+{
+    if(!g_tsf)
+        return;
+    for(int ch = 0; ch < 16; ch++)
+    {
+        tsf_channel_midi_control(g_tsf, ch, 121, 0);  // Reset All Controllers
+        tsf_channel_midi_control(g_tsf, ch, 7, 100);  // Volume
+        tsf_channel_midi_control(g_tsf, ch, 11, 127); // Expression
+        tsf_channel_midi_control(g_tsf, ch, 10, 64);  // Pan
+        tsf_channel_set_pitchwheel(g_tsf, ch, 8192);
+        tsf_channel_set_presetnumber(g_tsf, ch, 0, ch == 9 ? 1 : 0);
+    }
+}
+
 void SynthRender(float* outL, float* outR, size_t frames)
 {
     if(!g_tsf)
@@ -193,13 +288,82 @@ void SynthRender(float* outL, float* outR, size_t frames)
     }
 
     static float tmp[2 * 256];
+    static float tmpChorus[2 * 256];
+    static float tmpReverb[2 * 256];
     if(frames > 256)
         frames = 256;
 
-    tsf_render_float(g_tsf, tmp, (int)frames, 0);
+    tsf_render_float_fx(g_tsf, tmp, tmpChorus, tmpReverb, (int)frames, 0);
     for(size_t i = 0; i < frames; i++)
     {
-        outL[i] = tmp[2 * i + 0];
-        outR[i] = tmp[2 * i + 1];
+        const float dryL = tmp[2 * i + 0];
+        const float dryR = tmp[2 * i + 1];
+
+        const float chInL = tmpChorus[2 * i + 0];
+        const float chInR = tmpChorus[2 * i + 1];
+        const float chIn = (chInL + chInR);
+        g_chorus.Process(chIn);
+        const float chL = g_chorus.GetLeft() * g_chorus_gain * g_chorus_wet;
+        const float chR = g_chorus.GetRight() * g_chorus_gain * g_chorus_wet;
+
+        float rvL = 0.0f;
+        float rvR = 0.0f;
+        g_reverb.Process(tmpReverb[2 * i + 0], tmpReverb[2 * i + 1], &rvL, &rvR);
+        // Simple one-pole HPF on reverb return
+        const float yL = g_reverb_hp_a * (g_reverb_hp_zl + rvL - g_reverb_hp_xl);
+        const float yR = g_reverb_hp_a * (g_reverb_hp_zr + rvR - g_reverb_hp_xr);
+        g_reverb_hp_zl = yL;
+        g_reverb_hp_zr = yR;
+        g_reverb_hp_xl = rvL;
+        g_reverb_hp_xr = rvR;
+
+        // Send amounts already scale per-voice contributions.
+        outL[i] = dryL + chInL * g_chorus_dry + chL + tmpReverb[2 * i + 0] * g_reverb_dry + yL * g_reverb_wet;
+        outR[i] = dryR + chInR * g_chorus_dry + chR + tmpReverb[2 * i + 1] * g_reverb_dry + yR * g_reverb_wet;
     }
+}
+
+void SynthSetReverbTime(float t01)
+{
+    if(t01 < 0.0f)
+        t01 = 0.0f;
+    if(t01 > 1.0f)
+        t01 = 1.0f;
+    g_reverb.SetFeedback(t01);
+}
+
+void SynthSetReverbLpFreq(float hz)
+{
+    if(hz < 20.0f)
+        hz = 20.0f;
+    g_reverb.SetLpFreq(hz);
+}
+
+void SynthSetReverbHpFreq(float hz)
+{
+    if(hz < 20.0f)
+        hz = 20.0f;
+    if(hz > 1000.0f)
+        hz = 1000.0f;
+    // one-pole HPF coefficient
+    const float x  = expf(-2.0f * 3.14159265f * hz / g_sample_rate);
+    g_reverb_hp_a = x;
+}
+void SynthSetChorusDepth(float d01)
+{
+    if(d01 < 0.0f)
+        d01 = 0.0f;
+    if(d01 > 1.0f)
+        d01 = 1.0f;
+    g_chorus.SetLfoDepth(d01);
+}
+
+
+void SynthSetChorusSpeed(float hz)
+{
+    if(hz < 0.05f)
+        hz = 0.05f;
+    if(hz > 5.0f)
+        hz = 5.0f;
+    g_chorus.SetLfoFreq(hz);
 }
