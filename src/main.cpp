@@ -18,8 +18,8 @@ using namespace patch_sm;
 using namespace daisysp;
 using namespace major_midi;
 
-static constexpr bool kEnableUsbLog  = true;
-static constexpr bool kEnableUsbMidi = false;
+static constexpr bool kEnableUsbLog  = false;
+static constexpr bool kEnableUsbMidi = true;
 
 #define LOG(...)                                  \
     do                                            \
