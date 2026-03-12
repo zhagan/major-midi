@@ -242,6 +242,20 @@ void SynthNoteOff(uint8_t ch, uint8_t key)
     tsf_channel_note_off(g_tsf, (int)ch, (int)key);
 }
 
+void SynthAllNotesOff(uint8_t ch)
+{
+    if(!g_tsf)
+        return;
+    tsf_channel_note_off_all(g_tsf, (int)ch);
+}
+
+void SynthAllSoundOff(uint8_t ch)
+{
+    if(!g_tsf)
+        return;
+    tsf_channel_sounds_off_all(g_tsf, (int)ch);
+}
+
 void SynthProgramChange(uint8_t ch, uint8_t program)
 {
     if(!g_tsf)

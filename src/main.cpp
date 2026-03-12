@@ -993,7 +993,8 @@ void AudioCallback(AudioHandle::InputBuffer  in,
                 SynthPitchBend(ev.ch, bend);
             }
             break;
-            case EvType::AllNotesOff: SynthPanic(); break;
+            case EvType::AllSoundOff: SynthAllSoundOff(ev.ch); break;
+            case EvType::AllNotesOff: SynthAllNotesOff(ev.ch); break;
         }
     }
 
@@ -1119,7 +1120,9 @@ static void DispatchMidiMessage(MidiEvent msg)
             if(cc.control_number == 120 || cc.control_number == 123)
             {
                 MidiEv ev{};
-                ev.type = EvType::AllNotesOff;
+                ev.ch   = cc.channel;
+                ev.type = (cc.control_number == 120 ? EvType::AllSoundOff
+                                                    : EvType::AllNotesOff);
                 EnqueueImmediate(ev);
             }
             else
@@ -1137,10 +1140,19 @@ static void DispatchMidiMessage(MidiEvent msg)
         case MidiMessageType::ChannelMode:
         {
             auto mode = msg.AsChannelMode();
-            if(mode.event_type == ChannelModeType::AllNotesOff
-               || mode.event_type == ChannelModeType::AllSoundOff)
+            if(mode.event_type == ChannelModeType::AllNotesOff)
             {
-                SynthPanic();
+                MidiEv ev{};
+                ev.type = EvType::AllNotesOff;
+                ev.ch   = mode.channel;
+                EnqueueImmediate(ev);
+            }
+            else if(mode.event_type == ChannelModeType::AllSoundOff)
+            {
+                MidiEv ev{};
+                ev.type = EvType::AllSoundOff;
+                ev.ch   = mode.channel;
+                EnqueueImmediate(ev);
             }
         }
         break;
@@ -1195,6 +1207,7 @@ static void ProcessScheduledEvents(uint64_t sampleNow)
             case EvType::Program: name = "Program"; break;
             case EvType::ControlChange: name = "CC"; break;
             case EvType::PitchBend: name = "PitchBend"; break;
+            case EvType::AllSoundOff: name = "AllSoundOff"; break;
             case EvType::AllNotesOff: name = "AllNotesOff"; break;
         }
         LOG("Scheduled %s ch:%u note:%u vel:%u sample:%lu",
@@ -1228,6 +1241,7 @@ static void ProcessScheduledEvents(uint64_t sampleNow)
                 EnqueueImmediate(ev);
                 break;
             case EvType::PitchBend: EnqueueImmediate(ev); break;
+            case EvType::AllSoundOff: EnqueueImmediate(ev); break;
             case EvType::AllNotesOff: EnqueueImmediate(ev); break;
         }
     }

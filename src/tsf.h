@@ -2265,13 +2265,14 @@ extern "C"
             renderVibLfoToPitch   = mod_voice.vibLfoToPitch;
             renderModLfoToVolume  = mod_voice.modLfoToVolume;
         }
+        float renderCutoffScale = 1.0f;
         if(renderChannel)
         {
-            /* Shape CC74 so the middle of the range is less cramped but 0 still gets dark. */
+            /* Apply CC74 as a cutoff-frequency scale after modulation, not a fixed SF2-cent offset. */
             float ccFc     = (((float)renderChannel->midiFc) - 64.0f) / 63.0f;
             float ccFcCube = ccFc * ccFc * ccFc;
             float ccFcBias = (0.35f * ccFc) + (0.65f * ccFcCube);
-            renderInitialFilterFc += (int)(ccFcBias * 3600.0f);
+            renderCutoffScale = tsf_timecents2Secsd(ccFcBias * 3102.0f);
 
             /* Let CC71 dominate resonance so higher values still push the SVF harder. */
             int ccQ = ((int)renderChannel->midiQ) * 8;
@@ -2314,7 +2315,8 @@ extern "C"
 
         TSF_BOOL dynamicLowpass
             = (region->modLfoToFilterFc || region->modEnvToFilterFc
-               || renderInitialFilterFc != 13500 || renderInitialFilterQ != 0);
+               || renderInitialFilterFc != 13500 || renderInitialFilterQ != 0
+               || renderCutoffScale != 1.0f);
         float tmpSampleRate = f->outSampleRate, tmpInitialFilterFc,
               tmpModLfoToFilterFc, tmpModEnvToFilterFc;
 
@@ -2362,7 +2364,8 @@ extern "C"
                 float fres = tmpInitialFilterFc
                              + v->modlfo.level * tmpModLfoToFilterFc
                              + v->modenv.level * tmpModEnvToFilterFc;
-                float cutoffHz  = tsf_cents2Hertz(fres);
+                float cutoffHz = tsf_cents2Hertz(fres);
+                cutoffHz *= renderCutoffScale;
                 float resonance = renderInitialFilterQ / 960.0f;
                 tsf_svf_set(&tmpSvf, cutoffHz, resonance);
             }

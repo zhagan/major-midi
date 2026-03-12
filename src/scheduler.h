@@ -9,6 +9,7 @@ enum class EvType : uint8_t
     Program,
     ControlChange,
     PitchBend,
+    AllSoundOff,
     AllNotesOff,
 };
 

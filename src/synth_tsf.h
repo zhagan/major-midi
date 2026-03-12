@@ -21,6 +21,8 @@ void SynthPanic();
 bool SynthNoteOn(uint8_t ch, uint8_t key, uint8_t velocity);
 
 void SynthNoteOff(uint8_t ch, uint8_t key);
+void SynthAllNotesOff(uint8_t ch);
+void SynthAllSoundOff(uint8_t ch);
 
 void SynthProgramChange(uint8_t ch, uint8_t program);
 
