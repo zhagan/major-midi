@@ -6,9 +6,7 @@ namespace major_midi
 {
 
 static inline uint32_t now_ms()
-{
-    return System::GetNow();
-}
+{ return System::GetNow(); }
 
 void UiOled::Init(patch_sm::DaisyPatchSM& hw,
                   const Pins&             pins,
@@ -200,7 +198,7 @@ void UiOled::editMove_(int delta)
             {
                 int iv = (int)backend_->GetMidiProgramMessages()
                          + (d > 0 ? 1 : -1);
-                iv = wrapi_(iv, 0, 3);
+                iv     = wrapi_(iv, 0, 3);
                 backend_->SetMidiProgramMessages((UiBackend::Quad)iv);
             }
         }
@@ -1002,9 +1000,7 @@ const char* UiOled::quadToStr_(UiBackend::Quad v)
 }
 
 const char* UiOled::syncToStr_(UiBackend::SyncMode v)
-{
-    return (v == UiBackend::SyncMode::Internal) ? "Internal" : "External";
-}
+{ return (v == UiBackend::SyncMode::Internal) ? "Internal" : "External"; }
 
 int UiOled::clampi_(int v, int lo, int hi)
 {

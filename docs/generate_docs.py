@@ -65,6 +65,21 @@ def split_blocks(lines: list[str]) -> list[tuple[str, object]]:
             blocks.append(("olist", items))
             continue
 
+        if "|" in stripped and i + 1 < len(lines):
+            separator = lines[i + 1].strip()
+            if "|" in separator and re.fullmatch(r"[\|\-\:\s]+", separator):
+                header_cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+                rows: list[list[str]] = []
+                i += 2
+                while i < len(lines):
+                    candidate = lines[i].strip()
+                    if not candidate or "|" not in candidate:
+                        break
+                    rows.append([cell.strip() for cell in candidate.strip("|").split("|")])
+                    i += 1
+                blocks.append(("table", (header_cells, rows)))
+                continue
+
         if stripped.startswith("- "):
             items: list[str] = []
             while i < len(lines):
@@ -141,6 +156,22 @@ def build_sections(blocks: list[tuple[str, object]]) -> tuple[str, list[tuple[st
         elif kind == "olist":
             items = "".join(f"<li>{inline_format(item)}</li>" for item in data)  # type: ignore[arg-type]
             current.append(f'<ol class="steps">{items}</ol>')
+        elif kind == "table":
+            headers, rows = data  # type: ignore[misc]
+            thead = "".join(f"<th>{inline_format(cell)}</th>" for cell in headers)
+            body_rows = []
+            for row in rows:
+                padded = list(row) + [""] * max(0, len(headers) - len(row))
+                cells = "".join(f"<td>{inline_format(cell)}</td>" for cell in padded[: len(headers)])
+                body_rows.append(f"<tr>{cells}</tr>")
+            tbody = "".join(body_rows)
+            current.append(
+                '<div class="table-wrap"><table><thead><tr>'
+                + thead
+                + "</tr></thead><tbody>"
+                + tbody
+                + "</tbody></table></div>"
+            )
         elif kind == "code":
             lang, code = data  # type: ignore[misc]
             cls = f' class="language-{html.escape(lang)}"' if lang else ""
