@@ -215,24 +215,8 @@ def build_html(title: str, intro: str, sections_html: str, nav: list[tuple[str, 
             <div>
               <p class="kicker">Generated Docs</p>
               <h2>{html.escape(title)}</h2>
-              <p>
-                This site is generated from
-                <code>README.md</code>.
-              </p>
-              <p>
-                Edit the README, then rerun
-                <code>python3 docs/generate_docs.py</code>.
-              </p>
             </div>
 
-            <div class="hero-card">
-              <h3>Single Source</h3>
-              <ul>
-                <li>README is the source of truth</li>
-                <li><code>docs/index.html</code> is generated</li>
-                <li><code>docs/styles.css</code> controls presentation</li>
-              </ul>
-            </div>
           </div>
         </section>
 
