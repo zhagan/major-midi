@@ -23,7 +23,7 @@ class UiController
     void HandlePerformanceBankButton(uint8_t bank, uint32_t now_ms);
     void ResetKnobPickup();
     void SetMode(UiMode mode, uint32_t now_ms, const char* overlay);
-    void CycleKnobPage(uint32_t now_ms);
+    void CycleKnobPage(int32_t delta, uint32_t now_ms);
     void SelectBank(uint8_t bank, uint32_t now_ms);
     void ToggleVisibleMute(uint8_t slot, uint32_t now_ms);
     void ToggleMenu(uint32_t now_ms);
@@ -32,13 +32,14 @@ class UiController
     void ActivateMenuRoot(const MediaLibrary& library, uint32_t now_ms);
     void ActivateMenuPage(const MediaLibrary& library, uint32_t now_ms);
     void AdjustMenuValue(int32_t delta, uint32_t now_ms);
+    void MoveLoopEditCursor(int32_t delta, uint32_t now_ms);
+    void AdjustLoopEditValue(int32_t delta, uint32_t now_ms);
+    void NormalizeLoopState();
     bool HandleKnob(uint8_t index, float value, uint32_t now_ms);
     static uint8_t NormToMidi(float value);
 
     AppState* state_ = nullptr;
     bool      knob_caught_[4]{};
-    uint8_t   last_bank_button_      = 0xFF;
-    uint32_t  last_bank_button_ms_   = 0;
 };
 
 } // namespace major_midi

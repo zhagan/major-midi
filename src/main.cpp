@@ -10,12 +10,14 @@
 #include "media_library.h"
 #include "midi_routing_persist.h"
 #include "mixer_transport.h"
+#include "per/tim.h"
 #include "sd_mount.h"
 #include "smf_player.h"
 #include "synth_tsf.h"
 #include "ui_controller.h"
 #include "ui_input.h"
 #include "ui_renderer.h"
+#include "util/scopedirqblocker.h"
 
 using namespace daisy;
 using namespace patch_sm;
@@ -46,17 +48,22 @@ MidiUsbHandler    usb_midi;
 MidiUartHandler   uart_midi;
 ClockSync         midi_clock_sync;
 ClockSync         gate_clock_sync;
+TimerHandle       midi_tx_timer;
 bool              audio_started = false;
 uint8_t           applied_sf2_max_voices = 0;
 uint32_t          channel_flash_until[16]{};
+uint32_t          channel_monitor_until[16]{};
 volatile uint64_t sync_sample_counter      = 0;
 volatile uint32_t pending_midi_clock_edges = 0;
 
 constexpr uint32_t kLedFlashMs = 90;
+constexpr uint32_t kMonitorFlashMs         = 250;
 constexpr uint32_t kRenderIntervalStoppedMs    = 100;
 constexpr uint32_t kRenderIntervalPlayingMs    = 250;
 constexpr uint32_t kRenderIntervalUiActiveMs   = 100;
 constexpr uint32_t kUiActiveHoldMs             = 1200;
+constexpr uint64_t kScheduledMidiLeadSamples   = 512;
+constexpr uint32_t kMidiTxTimerRateHz          = 2000;
 const char*        kCvGateConfigPath           = "0:/major_midi_cv_gate.bin";
 const char*        kMidiRoutingConfigPath      = "0:/major_midi_routing.bin";
 
@@ -68,6 +75,9 @@ enum class MidiOutputKind : uint8_t
     Transport,
     Clock,
 };
+
+void UpdateMidiMonitor(const MidiEvent& msg);
+void UpdateMidiMonitor(const MidiEv& ev);
 
 bool MidiOutputEnabled(const MidiOutputRouting& routing, MidiOutputKind kind)
 {
@@ -243,11 +253,70 @@ bool MidiEvToRawBytes(const MidiEv& ev, uint8_t out[3], size_t& size, MidiOutput
 
 void ForwardScheduledMidiOut(const MidiEv& ev, void*)
 {
-    uint8_t        bytes[3]{};
-    size_t         size = 0;
-    MidiOutputKind kind = MidiOutputKind::Notes;
-    if(MidiEvToRawBytes(ev, bytes, size, kind))
-        SendToConfiguredOutputs(kind, bytes, size);
+    UpdateMidiMonitor(ev);
+}
+
+bool ScheduledMidiOutputBlocked(const MidiEv& ev)
+{
+    if(ev.ch >= 16)
+        return false;
+    if(!app_state.channels[ev.ch].muted)
+        return false;
+    switch(ev.type)
+    {
+        case EvType::NoteOn:
+        case EvType::NoteOff:
+        case EvType::Program:
+        case EvType::ControlChange:
+        case EvType::PitchBend: return true;
+        case EvType::AllSoundOff:
+        case EvType::AllNotesOff: return false;
+    }
+    return false;
+}
+
+MidiEv PrepareScheduledMidiOutput(MidiEv ev)
+{
+    if((ev.type == EvType::NoteOn || ev.type == EvType::NoteOff) && ev.ch != 9)
+    {
+        int note = static_cast<int>(ev.a) + app_state.sf2_transpose;
+        if(note < 0)
+            note = 0;
+        if(note > 127)
+            note = 127;
+        ev.a = static_cast<uint8_t>(note);
+    }
+
+    if(ev.type == EvType::Program && ev.ch < 16 && app_state.channels[ev.ch].program_override >= 0)
+        ev.a = static_cast<uint8_t>(app_state.channels[ev.ch].program_override);
+
+    if(ev.type == EvType::ControlChange && ev.a == 11)
+        ev.b = static_cast<uint8_t>((uint16_t(ev.b) * uint16_t(app_state.sf2_expression_max)) / 127u);
+
+    return ev;
+}
+
+void FlushScheduledMidiOut()
+{
+    const uint64_t due_sample = transport.SampleClock() + kScheduledMidiLeadSamples;
+    MidiEv         ev{};
+    while(transport.PopDueMidiOutputEvent(due_sample, ev))
+    {
+        if(ScheduledMidiOutputBlocked(ev))
+            continue;
+
+        MidiEv actual = PrepareScheduledMidiOutput(ev);
+        uint8_t        bytes[3]{};
+        size_t         size = 0;
+        MidiOutputKind kind = MidiOutputKind::Notes;
+        if(MidiEvToRawBytes(actual, bytes, size, kind))
+            SendToConfiguredOutputs(kind, bytes, size);
+    }
+}
+
+void MidiTxTimerCallback(void*)
+{
+    FlushScheduledMidiOut();
 }
 
 void MaybeForwardThru(const MidiEvent& msg, bool from_usb)
@@ -267,6 +336,67 @@ void MaybeForwardThru(const MidiEvent& msg, bool from_usb)
         SendToDestinationOutput(false, kind, bytes, size);
     if(to_usb)
         SendToDestinationOutput(true, kind, bytes, size);
+}
+
+void UpdateMidiMonitor(const MidiEvent& msg)
+{
+    if(msg.channel >= 16)
+        return;
+
+    auto& channel = app_state.midi_monitor_channels[msg.channel];
+    switch(msg.type)
+    {
+        case MidiMessageType::NoteOn:
+        case MidiMessageType::NoteOff:
+            channel.note       = msg.data[0];
+            channel.note_valid = true;
+            break;
+
+        case MidiMessageType::PitchBend:
+        {
+            const uint16_t bend = (uint16_t(msg.data[1]) << 7) | msg.data[0];
+            channel.pitchbend_coarse = static_cast<uint8_t>(bend >> 7);
+            channel.pitchbend_valid  = true;
+        }
+        break;
+
+        case MidiMessageType::ControlChange:
+            channel.cc       = msg.data[0];
+            channel.cc_value = msg.data[1];
+            channel.cc_valid = true;
+            break;
+
+        default: break;
+    }
+}
+
+void UpdateMidiMonitor(const MidiEv& ev)
+{
+    if(ev.ch >= 16)
+        return;
+
+    auto& channel = app_state.midi_monitor_channels[ev.ch];
+    switch(ev.type)
+    {
+        case EvType::NoteOn:
+        case EvType::NoteOff:
+            channel.note       = ev.a;
+            channel.note_valid = true;
+            break;
+
+        case EvType::PitchBend:
+            channel.pitchbend_coarse = ev.b;
+            channel.pitchbend_valid  = true;
+            break;
+
+        case EvType::ControlChange:
+            channel.cc       = ev.a;
+            channel.cc_value = ev.b;
+            channel.cc_valid = true;
+            break;
+
+        default: break;
+    }
 }
 
 void ServiceIncomingMidi()
@@ -292,6 +422,7 @@ void ServiceIncomingMidi()
                 default: break;
             }
         }
+        UpdateMidiMonitor(msg);
         MaybeForwardThru(msg, true);
         transport.HandleMidiMessage(msg, app_state);
     }
@@ -317,6 +448,7 @@ void ServiceIncomingMidi()
                 default: break;
             }
         }
+        UpdateMidiMonitor(msg);
         MaybeForwardThru(msg, false);
         transport.HandleMidiMessage(msg, app_state);
     }
@@ -452,6 +584,40 @@ uint16_t TickToMeasure(uint64_t tick, const SmfPlayer& player)
     return static_cast<uint16_t>((tick / ticks_per_measure) + 1u);
 }
 
+uint8_t TickToBeat(uint64_t tick, const SmfPlayer& player)
+{
+    const uint16_t divisions = player.Divisions();
+    if(divisions == 0)
+        return 1;
+
+    const int denominator = player.TimeSigDenominator() > 0 ? player.TimeSigDenominator() : 4;
+    const uint64_t ticks_per_beat
+        = (static_cast<uint64_t>(divisions) * 4u) / static_cast<uint64_t>(denominator);
+    if(ticks_per_beat == 0)
+        return 1;
+
+    const int numerator = player.TimeSigNumerator() > 0 ? player.TimeSigNumerator() : 4;
+    const uint64_t beat_index = (tick / ticks_per_beat) % static_cast<uint64_t>(numerator);
+    return static_cast<uint8_t>(beat_index + 1u);
+}
+
+uint64_t MeasureBeatToTick(int measure, int beat, const SmfPlayer& player)
+{
+    const uint16_t divisions = player.Divisions();
+    if(divisions == 0)
+        return 0;
+
+    const int numerator   = player.TimeSigNumerator() > 0 ? player.TimeSigNumerator() : 4;
+    const int denominator = player.TimeSigDenominator() > 0 ? player.TimeSigDenominator() : 4;
+    const uint64_t ticks_per_beat
+        = (static_cast<uint64_t>(divisions) * 4u) / static_cast<uint64_t>(denominator);
+    const uint64_t ticks_per_measure = ticks_per_beat * static_cast<uint64_t>(numerator);
+    const int safe_measure = measure < 1 ? 1 : measure;
+    const int safe_beat    = beat < 1 ? 1 : (beat > numerator ? numerator : beat);
+    return static_cast<uint64_t>(safe_measure - 1) * ticks_per_measure
+           + static_cast<uint64_t>(safe_beat - 1) * ticks_per_beat;
+}
+
 void InitDefaultState()
 {
     app_state = AppState{};
@@ -578,6 +744,7 @@ bool SaveAllSettings(uint32_t now_ms)
     char midi_path[MediaLibrary::kNameMax * 2]{};
     char sf2_path[MediaLibrary::kNameMax * 2]{};
     const auto midi_settings = smf_player.Settings();
+    MidiRoutingConfig saved_midi_routing{};
 
     media_library.BuildMidiPath(app_state.selected_midi_index, midi_path, sizeof(midi_path));
     media_library.BuildSoundFontPath(app_state.selected_sf2_index, sf2_path, sizeof(sf2_path));
@@ -593,7 +760,14 @@ bool SaveAllSettings(uint32_t now_ms)
         midi_ok = major_midi::WriteMajorMidiMetaEvent(midi_path, midi_settings);
 
     const bool cv_ok = SaveCvGateConfig(kCvGateConfigPath, app_state.cv_gate);
-    const bool midi_routing_ok = SaveMidiRoutingConfig(kMidiRoutingConfigPath, app_state.midi_routing);
+    const bool midi_routing_saved
+        = SaveMidiRoutingConfig(kMidiRoutingConfigPath, app_state.midi_routing);
+    const bool midi_routing_loaded
+        = midi_routing_saved
+          && LoadMidiRoutingConfig(kMidiRoutingConfigPath, saved_midi_routing);
+    const bool midi_routing_ok = midi_routing_saved && midi_routing_loaded;
+    if(midi_routing_ok)
+        app_state.midi_routing = saved_midi_routing;
 
     const bool reload_ok = LoadSelectedMedia(midi_path[0] != '\0', sf2_path[0] != '\0', now_ms);
     if(midi_ok && cv_ok && midi_routing_ok && reload_ok)
@@ -603,6 +777,7 @@ bool SaveAllSettings(uint32_t now_ms)
         app_state.menu_page_cursor = 0;
         app_state.menu_root_cursor = 0;
         app_state.menu_editing     = false;
+        app_state.midi_routing_dirty = false;
         SetOverlay(app_state, "Settings Saved", now_ms);
         return true;
     }
@@ -668,6 +843,18 @@ int main(void)
     uart_cfg.transport_config.tx     = DaisyPatchSM::A3;
     uart_midi.Init(uart_cfg);
     uart_midi.StartReceive();
+
+    TimerHandle::Config midi_tx_timer_cfg;
+    midi_tx_timer_cfg.periph     = TimerHandle::Config::Peripheral::TIM_5;
+    midi_tx_timer_cfg.enable_irq = true;
+    midi_tx_timer.Init(midi_tx_timer_cfg);
+    const uint32_t timer_base_hz = midi_tx_timer.GetFreq();
+    const uint32_t prescaler
+        = timer_base_hz > 1000000 ? ((timer_base_hz / 1000000) - 1) : 0;
+    midi_tx_timer.SetPrescaler(prescaler);
+    midi_tx_timer.SetPeriod((1000000 / kMidiTxTimerRateHz) - 1);
+    midi_tx_timer.SetCallback(MidiTxTimerCallback, nullptr);
+    midi_tx_timer.Start();
 
     uint32_t render_ms          = System::GetNow();
     uint32_t last_ui_activity_ms = render_ms;
@@ -746,6 +933,7 @@ int main(void)
 
         AppState effective_state = app_state;
         effective_state.bpm      = cv_gate_engine.EffectiveBpm(app_state);
+        effective_state.active_voices = static_cast<uint8_t>(SynthActiveVoiceCount());
         if(app_state.sync_external)
         {
             const float midi_bpm = midi_clock_sync.GetBpmEstimate();
@@ -775,6 +963,12 @@ int main(void)
 
         if(audio_started)
             transport.Update(effective_state);
+
+        if(audio_started && effective_state.transport_playing && !transport.IsPlaying())
+        {
+            app_state.transport_playing      = false;
+            effective_state.transport_playing = false;
+        }
 
         const bool internal_transport_master = !effective_state.sync_external;
         const bool transport_started
@@ -820,6 +1014,35 @@ int main(void)
             = effective_state.transport_playing
                   ? TickToMeasure(transport.CurrentSongTick(), smf_player)
                   : 1;
+        effective_state.current_beat
+            = effective_state.transport_playing
+                  ? TickToBeat(transport.CurrentSongTick(), smf_player)
+                  : 1;
+        effective_state.time_sig_num
+            = smf_player.TimeSigNumerator() > 0 ? smf_player.TimeSigNumerator() : 4;
+        effective_state.time_sig_den
+            = smf_player.TimeSigDenominator() > 0 ? smf_player.TimeSigDenominator() : 4;
+        effective_state.song_total_measures = TickToMeasure(smf_player.TotalTicks(), smf_player);
+        const uint64_t loop_start_tick
+            = MeasureBeatToTick(effective_state.loop_start_measure,
+                                effective_state.loop_start_beat,
+                                smf_player);
+        const uint16_t divisions = smf_player.Divisions();
+        const uint64_t ticks_per_beat
+            = divisions > 0
+                  ? ((static_cast<uint64_t>(divisions) * 4u)
+                     / static_cast<uint64_t>(effective_state.time_sig_den > 0
+                                                 ? effective_state.time_sig_den
+                                                 : 4))
+                  : 0;
+        const uint64_t loop_end_tick
+            = loop_start_tick
+              + static_cast<uint64_t>(effective_state.loop_length_beats > 0
+                                          ? effective_state.loop_length_beats
+                                          : 1)
+                    * ticks_per_beat;
+        effective_state.loop_end_measure = TickToMeasure(loop_end_tick, smf_player);
+        effective_state.loop_end_beat    = TickToBeat(loop_end_tick, smf_player);
         for(uint8_t ch = 0; ch < 16; ch++)
             app_state.channels[ch].current_program = transport.ChannelProgram(ch);
 
@@ -827,7 +1050,15 @@ int main(void)
         for(size_t ch = 0; ch < 16; ch++)
         {
             if(channel_activity[ch] != 0)
+            {
                 channel_flash_until[ch] = now + kLedFlashMs;
+                channel_monitor_until[ch] = now + kMonitorFlashMs;
+                app_state.midi_monitor_activity[ch] = channel_activity[ch];
+            }
+            else if(channel_monitor_until[ch] <= now)
+            {
+                app_state.midi_monitor_activity[ch] = 0;
+            }
         }
 
         uint8_t led_mask = 0;

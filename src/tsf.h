@@ -254,8 +254,8 @@ extern "C"
     TSFDEF int  tsf_channel_note_on(tsf* f, int channel, int key, float vel);
     TSFDEF void tsf_channel_note_off(tsf* f, int channel, int key);
     TSFDEF void
-                tsf_channel_note_off_all(tsf* f,
-                                         int  channel); //end with sustain and release
+    tsf_channel_note_off_all(tsf* f,
+                             int  channel); //end with sustain and release
     TSFDEF void tsf_channel_sounds_off_all(tsf* f,
                                            int  channel); //end immediately
 
@@ -292,7 +292,7 @@ extern "C"
 // Increasing the value significantly lowers the CPU usage of the voice rendering.
 // If LFO affects the low-pass filter it can be hearable even as low as 8.
 #ifndef TSF_RENDER_EFFECTSAMPLEBLOCK
-#define TSF_RENDER_EFFECTSAMPLEBLOCK 64
+#define TSF_RENDER_EFFECTSAMPLEBLOCK 128
 #endif
 
 // When using tsf_render_short, to do the conversion a buffer of a fixed size is
@@ -300,7 +300,7 @@ extern "C"
 // Increasing this above 512 should not have a significant impact on performance.
 // The value should be a multiple of TSF_RENDER_EFFECTSAMPLEBLOCK.
 #ifndef TSF_RENDER_SHORTBUFFERBLOCK
-#define TSF_RENDER_SHORTBUFFERBLOCK 512
+#define TSF_RENDER_SHORTBUFFERBLOCK 256
 #endif
 
 // Grace release time for quick voice off (avoid clicking noise)
@@ -385,13 +385,9 @@ extern "C"
 
 #ifndef TSF_NO_STDIO
     static int tsf_stream_stdio_read(FILE* f, void* ptr, unsigned int size)
-    {
-        return (int)fread(ptr, 1, size, f);
-    }
+    { return (int)fread(ptr, 1, size, f); }
     static int tsf_stream_stdio_skip(FILE* f, unsigned int count)
-    {
-        return !fseek(f, count, SEEK_CUR);
-    }
+    { return !fseek(f, count, SEEK_CUR); }
     TSFDEF tsf* tsf_load_filename(const char* filename)
     {
         tsf*              res;
@@ -556,9 +552,7 @@ extern "C"
     }
     static void tsf_hydra_read_pbag(struct tsf_hydra_pbag* i,
                                     struct tsf_stream*     stream)
-    {
-        TSFR(genNdx) TSFR(modNdx)
-    }
+    { TSFR(genNdx) TSFR(modNdx) }
     static void tsf_hydra_read_pmod(struct tsf_hydra_pmod* i,
                                     struct tsf_stream*     stream)
     {
@@ -567,19 +561,13 @@ extern "C"
     }
     static void tsf_hydra_read_pgen(struct tsf_hydra_pgen* i,
                                     struct tsf_stream*     stream)
-    {
-        TSFR(genOper) TSFR(genAmount)
-    }
+    { TSFR(genOper) TSFR(genAmount) }
     static void tsf_hydra_read_inst(struct tsf_hydra_inst* i,
                                     struct tsf_stream*     stream)
-    {
-        TSFR(instName) TSFR(instBagNdx)
-    }
+    { TSFR(instName) TSFR(instBagNdx) }
     static void tsf_hydra_read_ibag(struct tsf_hydra_ibag* i,
                                     struct tsf_stream*     stream)
-    {
-        TSFR(instGenNdx) TSFR(instModNdx)
-    }
+    { TSFR(instGenNdx) TSFR(instModNdx) }
     static void tsf_hydra_read_imod(struct tsf_hydra_imod* i,
                                     struct tsf_stream*     stream)
     {
@@ -588,9 +576,7 @@ extern "C"
     }
     static void tsf_hydra_read_igen(struct tsf_hydra_igen* i,
                                     struct tsf_stream*     stream)
-    {
-        TSFR(genOper) TSFR(genAmount)
-    }
+    { TSFR(genOper) TSFR(genAmount) }
     static void tsf_hydra_read_shdr(struct tsf_hydra_shdr* i,
                                     struct tsf_stream*     stream)
     {
@@ -623,15 +609,11 @@ extern "C"
         int                 samplesUntilNextSegment;
         struct tsf_envelope parameters;
     };
-    typedef struct
+    struct tsf_voice_lowpass
     {
-        float ic1eq;
-        float ic2eq;
-        float g;
-        float k;
-        float a1, a2, a3;
-        float sampleRate;
-    } tsf_svf_lpf;
+        double   QInv, a0, a1, b1, b2, z1, z2;
+        TSF_BOOL active;
+    };
     struct tsf_voice_lfo
     {
         int   samplesUntil;
@@ -703,7 +685,7 @@ extern "C"
         int                       vibLfoToPitch, modLfoToVolume;
         unsigned int              playIndex, loopStart, loopEnd;
         struct tsf_voice_envelope ampenv, modenv;
-        tsf_svf_lpf               svf;
+        struct tsf_voice_lowpass  lowpass;
         struct tsf_voice_lfo      modlfo, viblfo;
     };
 
@@ -724,25 +706,15 @@ extern "C"
     };
 
     static double tsf_timecents2Secsd(double timecents)
-    {
-        return TSF_POW(2.0, timecents / 1200.0);
-    }
+    { return TSF_POW(2.0, timecents / 1200.0); }
     static float tsf_timecents2Secsf(float timecents)
-    {
-        return TSF_POWF(2.0f, timecents / 1200.0f);
-    }
+    { return TSF_POWF(2.0f, timecents / 1200.0f); }
     static float tsf_cents2Hertz(float cents)
-    {
-        return 8.176f * TSF_POWF(2.0f, cents / 1200.0f);
-    }
+    { return 8.176f * TSF_POWF(2.0f, cents / 1200.0f); }
     static float tsf_decibelsToGain(float db)
-    {
-        return (db > -100.f ? TSF_POWF(10.0f, db * 0.05f) : 0);
-    }
+    { return (db > -100.f ? TSF_POWF(10.0f, db * 0.05f) : 0); }
     static float tsf_gainToDecibels(float gain)
-    {
-        return (gain <= .00001f ? -100.f : (float)(20.0 * TSF_LOG10(gain)));
-    }
+    { return (gain <= .00001f ? -100.f : (float)(20.0 * TSF_LOG10(gain))); }
 
     static TSF_BOOL tsf_riffchunk_read(struct tsf_riffchunk* parent,
                                        struct tsf_riffchunk* chunk,
@@ -1161,17 +1133,15 @@ extern "C"
     }
 
     static float tsf_curve_concave(float value)
-    {
-        return 1.0f - tsf_curve_convex(1.0f - value);
-    }
+    { return 1.0f - tsf_curve_convex(1.0f - value); }
 
     static float
     tsf_modulator_source_value(tsf* f, struct tsf_voice* v, int modSrc)
     {
         int idx = modSrc & 0x7F, cc = ((modSrc & 0x80) == 0x80),
             d = ((modSrc & 0x100) == 0x100), p = ((modSrc & 0x200) == 0x200),
-            typ                                  = ((modSrc & 0xFC00) >> 10);
-        int                       rawSourceValue = 0;
+            typ            = ((modSrc & 0xFC00) >> 10);
+        int rawSourceValue = 0;
         const struct tsf_channel* c
             = (f->channels && v->playingChannel != -1
                        && v->playingChannel < f->channels->channelNum
@@ -1373,8 +1343,8 @@ extern "C"
                 ppbag != ppbagEnd;
                 ppbag++)
             {
-                unsigned char plokey = 0, phikey = 127, plovel = 0,
-                              phivel = 127;
+                unsigned char          plokey = 0, phikey = 127, plovel = 0,
+                                       phivel = 127;
                 struct tsf_hydra_pgen *ppgen, *ppgenEnd;
                 struct tsf_hydra_inst* pinst;
                 struct tsf_hydra_ibag *pibag, *pibagEnd;
@@ -1521,7 +1491,7 @@ extern "C"
                                 if(!new_modulators)
                                     continue;
                                 zoneRegion.modulators = new_modulators;
-                                modulator             = zoneRegion.modulators
+                                modulator = zoneRegion.modulators
                                             + zoneRegion.modulatorNum;
                                 for(exist_modulator = zoneRegion.modulators;
                                     exist_modulator != modulator;
@@ -1755,10 +1725,10 @@ extern "C"
     {
         const tsf_u8* smplBuffer = (const tsf_u8*)rawBuffer;
         tsf_u32       smplLength = *pSmplCount, resNum = 0, resMax = 0,
-                resInitial
-                = (smplLength > 0x100000 ? (smplLength & ~0xFFFFF) : 65536);
-        float *res = TSF_NULL, *oldres;
-        int    i, shdrLast = hydra->shdrNum - 1, is_sf3 = 0;
+                      resInitial
+                      = (smplLength > 0x100000 ? (smplLength & ~0xFFFFF) : 65536);
+        float *       res = TSF_NULL, *oldres;
+        int           i, shdrLast = hydra->shdrNum - 1, is_sf3 = 0;
         for(i = 0; i <= shdrLast; i++)
         {
             struct tsf_hydra_shdr* shdr = &hydra->shdrs[i];
@@ -1889,7 +1859,7 @@ extern "C"
     for(res = *pFloatBuffer,
     out     = res + *pSmplCount,
     in      = (short*)res + *pSmplCount;
-        out != res;)
+             out != res;)
         *(--out) = (float)(*(--in) / 32767.0);
     return 1;
 #endif
@@ -2070,56 +2040,25 @@ extern "C"
             tsf_voice_envelope_nextsegment(e, e->segment, outSampleRate);
     }
 
-    static void tsf_svf_init(tsf_svf_lpf* f, float sampleRate)
+    static void tsf_voice_lowpass_setup(struct tsf_voice_lowpass* e, float Fc)
     {
-        f->ic1eq = 0.0f;
-        f->ic2eq = 0.0f;
-        f->g     = 0.0f;
-        f->k     = 0.0f;
-        f->a1 = f->a2 = f->a3 = 0.0f;
-        f->sampleRate         = sampleRate;
+        // Original TSF low-pass design: cheaper than the current SVF path.
+        double K    = TSF_TAN(TSF_PI * Fc);
+        double KK   = K * K;
+        double norm = 1.0 / (1.0 + K * e->QInv + KK);
+        e->a0       = KK * norm;
+        e->a1       = 2.0 * e->a0;
+        e->b1       = 2.0 * (KK - 1.0) * norm;
+        e->b2       = (1.0 - K * e->QInv + KK) * norm;
     }
 
-    static void tsf_svf_set(tsf_svf_lpf* f, float cutoffHz, float resonance)
+    static float tsf_voice_lowpass_process(struct tsf_voice_lowpass* e,
+                                           double                    in)
     {
-        float nyquist, maxCutoff;
-        if(f->sampleRate <= 0.0f)
-            return;
-        nyquist   = 0.5f * f->sampleRate;
-        maxCutoff = 0.45f * nyquist;
-        if(cutoffHz < 5.0f)
-            cutoffHz = 5.0f;
-        else if(cutoffHz > maxCutoff)
-            cutoffHz = maxCutoff;
-        if(resonance < 0.0f)
-            resonance = 0.0f;
-        else if(resonance > 1.0f)
-            resonance = 1.0f;
-        f->g = (float)TSF_TAN((TSF_PI * cutoffHz) / f->sampleRate);
-        /* Drive damping directly so max resonance sits on the edge of self-oscillation. */
-        f->k  = 0.02f + 1.98f * (1.0f - resonance);
-        f->a1 = 1.0f / (1.0f + f->g * (f->g + f->k));
-        f->a2 = f->g * f->a1;
-        f->a3 = f->g * f->a2;
-    }
-
-    static float tsf_svf_process(tsf_svf_lpf* f, float x)
-    {
-        float v3 = x - f->ic2eq;
-        float v1 = f->a1 * f->ic1eq + f->a2 * v3;
-        float v2 = f->ic2eq + f->a2 * f->ic1eq + f->a3 * v3;
-        f->ic1eq = 2.0f * v1 - f->ic1eq;
-        f->ic2eq = 2.0f * v2 - f->ic2eq;
-        return v2;
-    }
-
-    static float tsf_soft_clip(float x)
-    {
-        if(x < -1.5f)
-            return -1.0f;
-        if(x > 1.5f)
-            return 1.0f;
-        return x - ((x * x * x) * (1.0f / 3.0f));
+        double out = in * e->a0 + e->z1;
+        e->z1      = in * e->a1 + e->z2 - e->b1 * out;
+        e->z2      = in * e->a0 - e->b2 * out;
+        return (float)out;
     }
 
     static void tsf_voice_lfo_setup(struct tsf_voice_lfo* e,
@@ -2153,9 +2092,7 @@ extern "C"
     }
 
     static void tsf_voice_kill(struct tsf_voice* v)
-    {
-        v->playingPreset = -1;
-    }
+    { v->playingPreset = -1; }
 
     static void tsf_voice_end(tsf* f, struct tsf_voice* v)
     {
@@ -2265,20 +2202,6 @@ extern "C"
             renderVibLfoToPitch   = mod_voice.vibLfoToPitch;
             renderModLfoToVolume  = mod_voice.modLfoToVolume;
         }
-        float renderCutoffScale = 1.0f;
-        if(renderChannel)
-        {
-            /* Apply CC74 as a cutoff-frequency scale after modulation, not a fixed SF2-cent offset. */
-            float ccFc     = (((float)renderChannel->midiFc) - 64.0f) / 63.0f;
-            float ccFcCube = ccFc * ccFc * ccFc;
-            float ccFcBias = (0.35f * ccFc) + (0.65f * ccFcCube);
-            renderCutoffScale = tsf_timecents2Secsd(ccFcBias * 3102.0f);
-
-            /* Let CC71 dominate resonance so higher values still push the SVF harder. */
-            int ccQ = ((int)renderChannel->midiQ) * 8;
-            if(ccQ > renderInitialFilterQ)
-                renderInitialFilterQ = ccQ;
-        }
         if(renderInitialFilterFc < 1500)
             renderInitialFilterFc = 1500;
         else if(renderInitialFilterFc > 13500)
@@ -2308,15 +2231,14 @@ extern "C"
         TSF_BOOL     updateVibLFO = (v->viblfo.delta && renderVibLfoToPitch);
         TSF_BOOL     isLooping    = (v->loopStart < v->loopEnd);
         unsigned int tmpLoopStart = v->loopStart, tmpLoopEnd = v->loopEnd;
-        double       tmpSampleEndDbl        = (double)region->end,
-               tmpLoopEndDbl                = (double)tmpLoopEnd + 1.0;
-        double      tmpSourceSamplePosition = v->sourceSamplePosition;
-        tsf_svf_lpf tmpSvf                  = v->svf;
+        double                   tmpSampleEndDbl         = (double)region->end,
+                                 tmpLoopEndDbl           = (double)tmpLoopEnd + 1.0;
+        double                   tmpSourceSamplePosition = v->sourceSamplePosition;
+        struct tsf_voice_lowpass tmpLowpass              = v->lowpass;
 
         TSF_BOOL dynamicLowpass
             = (region->modLfoToFilterFc || region->modEnvToFilterFc
-               || renderInitialFilterFc != 13500 || renderInitialFilterQ != 0
-               || renderCutoffScale != 1.0f);
+               || renderInitialFilterFc != 13500 || renderInitialFilterQ != 0);
         float tmpSampleRate = f->outSampleRate, tmpInitialFilterFc,
               tmpModLfoToFilterFc, tmpModEnvToFilterFc;
 
@@ -2342,8 +2264,8 @@ extern "C"
             tmpVibLfoToPitch = (float)renderVibLfoToPitch,
             tmpModEnvToPitch = (float)region->modEnvToPitch;
         else
-            pitchRatio = tsf_timecents2Secsd(v->pitchInputTimecents)
-                         * v->pitchOutputFactor,
+            pitchRatio       = tsf_timecents2Secsd(v->pitchInputTimecents)
+                               * v->pitchOutputFactor,
             tmpModLfoToPitch = 0, tmpVibLfoToPitch = 0, tmpModEnvToPitch = 0;
 
         if(dynamicGain)
@@ -2361,13 +2283,14 @@ extern "C"
 
             if(dynamicLowpass)
             {
-                float fres = tmpInitialFilterFc
-                             + v->modlfo.level * tmpModLfoToFilterFc
-                             + v->modenv.level * tmpModEnvToFilterFc;
-                float cutoffHz = tsf_cents2Hertz(fres);
-                cutoffHz *= renderCutoffScale;
-                float resonance = renderInitialFilterQ / 960.0f;
-                tsf_svf_set(&tmpSvf, cutoffHz, resonance);
+                float fres      = tmpInitialFilterFc
+                                  + v->modlfo.level * tmpModLfoToFilterFc
+                                  + v->modenv.level * tmpModEnvToFilterFc;
+                float lowpassFc = (fres <= 13500 ? tsf_cents2Hertz(fres) / tmpSampleRate
+                                                 : 1.0f);
+                tmpLowpass.active = (lowpassFc < 0.499f);
+                if(tmpLowpass.active)
+                    tsf_voice_lowpass_setup(&tmpLowpass, lowpassFc);
             }
 
             if(dynamicPitchRatio)
@@ -2413,11 +2336,11 @@ extern "C"
                         // Simple linear interpolation.
                         float alpha = (float)(tmpSourceSamplePosition - pos),
                               val   = (input[pos] * (1.0f - alpha)
-                                     + input[nextPos] * alpha);
+                                       + input[nextPos] * alpha);
 
                         // Low-pass filter.
-                        if(dynamicLowpass)
-                            val = tsf_soft_clip(tsf_svf_process(&tmpSvf, val));
+                        if(tmpLowpass.active)
+                            val = tsf_voice_lowpass_process(&tmpLowpass, val);
 
                         *outL++ += val * gainLeft;
                         *outL++ += val * gainRight;
@@ -2472,11 +2395,11 @@ extern "C"
                         // Simple linear interpolation.
                         float alpha = (float)(tmpSourceSamplePosition - pos),
                               val   = (input[pos] * (1.0f - alpha)
-                                     + input[nextPos] * alpha);
+                                       + input[nextPos] * alpha);
 
                         // Low-pass filter.
-                        if(dynamicLowpass)
-                            val = tsf_soft_clip(tsf_svf_process(&tmpSvf, val));
+                        if(tmpLowpass.active)
+                            val = tsf_voice_lowpass_process(&tmpLowpass, val);
 
                         *outL++ += val * gainLeft;
                         *outR++ += val * gainRight;
@@ -2529,11 +2452,11 @@ extern "C"
                         // Simple linear interpolation.
                         float alpha = (float)(tmpSourceSamplePosition - pos),
                               val   = (input[pos] * (1.0f - alpha)
-                                     + input[nextPos] * alpha);
+                                       + input[nextPos] * alpha);
 
                         // Low-pass filter.
-                        if(dynamicLowpass)
-                            val = tsf_soft_clip(tsf_svf_process(&tmpSvf, val));
+                        if(tmpLowpass.active)
+                            val = tsf_voice_lowpass_process(&tmpLowpass, val);
 
                         *outL++ += val * gainMono;
                         if(outChL)
@@ -2572,8 +2495,7 @@ extern "C"
         }
 
         v->sourceSamplePosition = tmpSourceSamplePosition;
-        if(dynamicLowpass)
-            v->svf = tmpSvf;
+        v->lowpass = tmpLowpass;
     }
 
     TSFDEF tsf* tsf_load(struct tsf_stream* stream)
@@ -2609,7 +2531,7 @@ extern "C"
         int num              = chunk.size / chunkName##SizeInFile, i;     \
         hydra.chunkName##Num = num;                                       \
         hydra.chunkName##s   = (struct tsf_hydra_##chunkName*)TSF_MALLOC( \
-            num * sizeof(struct tsf_hydra_##chunkName));                \
+            num * sizeof(struct tsf_hydra_##chunkName));                  \
         if(!hydra.chunkName##s)                                           \
             goto out_of_memory;                                           \
         for(i = 0; i < num; ++i)                                          \
@@ -2782,9 +2704,7 @@ extern "C"
     }
 
     TSFDEF int tsf_get_presetcount(const tsf* f)
-    {
-        return f->presetNum;
-    }
+    { return f->presetNum; }
 
     TSFDEF const char* tsf_get_presetname(const tsf* f, int preset)
     {
@@ -2819,9 +2739,9 @@ extern "C"
 
     TSFDEF int tsf_set_max_voices(tsf* f, int max_voices)
     {
-        int i           = f->voiceNum;
-        int newVoiceNum = max_voices;
-        struct tsf_voice* newVoices = (struct tsf_voice*)TSF_REALLOC(
+        int               i           = f->voiceNum;
+        int               newVoiceNum = max_voices;
+        struct tsf_voice* newVoices   = (struct tsf_voice*)TSF_REALLOC(
             f->voices, newVoiceNum * sizeof(struct tsf_voice));
         if(!newVoices)
             return 0;
@@ -2855,7 +2775,7 @@ extern "C"
         {
             struct tsf_voice *voice, *v, *vEnd;
             TSF_BOOL          doLoop;
-            float             lowpassCutoffHz, lowpassResonance;
+            float             lowpassFc, lowpassFilterQDB;
             if(key < region->lokey || key > region->hikey
                || midiVelocity < region->lovel || midiVelocity > region->hivel)
                 continue;
@@ -2928,7 +2848,7 @@ extern "C"
             voice->playIndex       = voicePlayIndex;
             voice->heldSustain     = 0;
             voice->noteGainDB      = f->globalGainDB - region->attenuation
-                                - tsf_gainToDecibels(1.0f / vel);
+                                     - tsf_gainToDecibels(1.0f / vel);
             // Default sends from region (0..1000 -> 0..1)
             voice->chorusSend = region->chorusSend * 0.001f;
             voice->reverbSend = region->reverbSend * 0.001f;
@@ -2958,7 +2878,7 @@ extern "C"
 
             // Loop.
             doLoop           = (region->loop_mode != TSF_LOOPMODE_NONE
-                      && region->loop_start < region->loop_end);
+                                && region->loop_start < region->loop_end);
             voice->loopStart = (doLoop ? region->loop_start : 0);
             voice->loopEnd   = (doLoop ? region->loop_end : 0);
 
@@ -2976,11 +2896,18 @@ extern "C"
                                      TSF_FALSE,
                                      f->outSampleRate);
 
-            // Setup per-voice SVF.
-            tsf_svf_init(&voice->svf, f->outSampleRate);
-            lowpassCutoffHz  = tsf_cents2Hertz((float)region->initialFilterFc);
-            lowpassResonance = region->initialFilterQ / 960.0f;
-            tsf_svf_set(&voice->svf, lowpassCutoffHz, lowpassResonance);
+            // Setup original per-voice low-pass filter.
+            lowpassFc = (region->initialFilterFc <= 13500
+                             ? tsf_cents2Hertz((float)region->initialFilterFc)
+                                   / f->outSampleRate
+                             : 1.0f);
+            lowpassFilterQDB   = region->initialFilterQ / 10.0f;
+            voice->lowpass.QInv = 1.0 / TSF_POW(10.0, (lowpassFilterQDB / 20.0));
+            voice->lowpass.z1   = 0.0;
+            voice->lowpass.z2   = 0.0;
+            voice->lowpass.active = (lowpassFc < 0.499f);
+            if(voice->lowpass.active)
+                tsf_voice_lowpass_setup(&voice->lowpass, lowpassFc);
             voice->initialFilterFc = region->initialFilterFc;
             voice->initialFilterQ  = region->initialFilterQ;
             voice->vibLfoToPitch   = region->vibLfoToPitch;
@@ -3069,8 +2996,8 @@ extern "C"
     tsf_render_short(tsf* f, short* buffer, int samples, int flag_mixing)
     {
         float outputSamples[TSF_RENDER_SHORTBUFFERBLOCK];
-        int   channels        = (f->outputmode == TSF_MONO ? 1 : 2),
-            maxChannelSamples = TSF_RENDER_SHORTBUFFERBLOCK / channels;
+        int   channels          = (f->outputmode == TSF_MONO ? 1 : 2),
+              maxChannelSamples = TSF_RENDER_SHORTBUFFERBLOCK / channels;
         while(samples > 0)
         {
             int channelSamples
@@ -3083,12 +3010,12 @@ extern "C"
             if(flag_mixing)
                 while(buffer != bufferEnd)
                 {
-                    float v  = *floatSamples++;
-                    int   vi = *buffer
-                             + (v < -1.00004566f
-                                    ? (int)-32768
-                                    : (v > 1.00001514f ? (int)32767
-                                                       : (int)(v * 32767.5f)));
+                    float v = *floatSamples++;
+                    int vi  = *buffer
+                              + (v < -1.00004566f
+                                     ? (int)-32768
+                                     : (v > 1.00001514f ? (int)32767
+                                                        : (int)(v * 32767.5f)));
                     *buffer++ = (vi < -32768
                                      ? (short)-32768
                                      : (vi > 32767 ? (short)32767 : (short)vi));

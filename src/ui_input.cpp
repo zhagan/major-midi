@@ -7,6 +7,7 @@ namespace major_midi
 namespace
 {
 constexpr uint32_t kEncoderLongPressMs = 700;
+constexpr uint32_t kBankLongPressMs    = 700;
 constexpr uint8_t kSyncSwitchPin = 9;   // MCP GPB1
 constexpr uint8_t kEncSwitchPin  = 10; // MCP GPB2
 constexpr uint8_t kPlayButtonPin = 11; // MCP GPB3
@@ -120,8 +121,21 @@ size_t UiEventTranslator::Translate(const RawInputState& raw,
 
     for(uint8_t i = 0; i < 4; i++)
     {
+        if(i > 0 && raw.bank_buttons[0] && raw.bank_buttons[i]
+           && (!prev_.bank_buttons[0] || !prev_.bank_buttons[i]))
+        {
+            if(!bank_combo_active_)
+                push_event(UiEventType::BankComboPressed, i, 0, 0.0f);
+            bank_combo_active_ = true;
+            bank_long_sent_[0] = true;
+            bank_long_sent_[i] = true;
+            continue;
+        }
+
         if(raw.bank_buttons[i] && !prev_.bank_buttons[i])
         {
+            bank_down_ms_[i]   = now_ms;
+            bank_long_sent_[i] = false;
             if(raw.shift)
             {
                 push_event(UiEventType::ShiftComboPressed, i, 0, 0.0f);
@@ -132,6 +146,22 @@ size_t UiEventTranslator::Translate(const RawInputState& raw,
                 push_event(UiEventType::BankButtonPressed, i, 0, 0.0f);
             }
         }
+        else if(raw.bank_buttons[i] && !raw.shift && !bank_long_sent_[i]
+                && now_ms - bank_down_ms_[i] >= kBankLongPressMs)
+        {
+            push_event(UiEventType::BankButtonLongPress, i, 0, 0.0f);
+            bank_long_sent_[i] = true;
+        }
+        else if(!raw.bank_buttons[i] && prev_.bank_buttons[i])
+        {
+            bank_long_sent_[i] = false;
+        }
+    }
+
+    if((!raw.bank_buttons[0] && !raw.bank_buttons[1] && !raw.bank_buttons[2]
+        && !raw.bank_buttons[3]))
+    {
+        bank_combo_active_ = false;
     }
 
     if(raw.play_button && !prev_.play_button)

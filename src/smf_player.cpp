@@ -78,6 +78,7 @@ bool SmfPlayer::Open(const char* path)
     trackCount_ = tracks;
     fileTempoUsec_ = 500000;
     tempo_         = 500000;
+    total_ticks_   = 0;
     ts_num_        = 4;
     ts_den_        = 4;
     for(uint16_t i = 0; i < trackCount_; i++)
@@ -783,6 +784,8 @@ void SmfPlayer::BuildTempoMap()
             if(!ReadVarLen(trk, deltaTicks))
                 break;
             absTicks += deltaTicks;
+            if(absTicks > total_ticks_)
+                total_ticks_ = absTicks;
 
             uint8_t statusByte = 0;
             if(!ReadTrackByte(trk, statusByte))

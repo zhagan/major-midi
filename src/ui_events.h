@@ -8,6 +8,8 @@ namespace major_midi
 enum class UiEventType : uint8_t
 {
     BankButtonPressed,
+    BankComboPressed,
+    BankButtonLongPress,
     PlayButtonPressed,
     ShiftComboPressed,
     EncoderPressed,

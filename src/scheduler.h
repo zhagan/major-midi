@@ -64,6 +64,17 @@ class EventQueue
         return N - (tail_ - head_);
     }
 
+    template <typename Fn>
+    void Transform(Fn&& fn)
+    {
+        size_t idx = tail_;
+        while(idx != head_)
+        {
+            fn(buf_[idx]);
+            idx = (idx + 1) % N;
+        }
+    }
+
   private:
     MidiEv buf_[N]{};
     size_t head_ = 0;

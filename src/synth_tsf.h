@@ -27,6 +27,7 @@ void SynthAllNotesOff(uint8_t ch);
 void SynthAllSoundOff(uint8_t ch);
 
 void SynthProgramChange(uint8_t ch, uint8_t program);
+const char* SynthProgramName(uint8_t ch, uint8_t program);
 
 void SynthControlChange(uint8_t ch, uint8_t cc, uint8_t value);
 

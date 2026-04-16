@@ -220,7 +220,7 @@ def build_html(title: str, intro: str, sections_html: str, nav: list[tuple[str, 
           </div>
         </section>
 
-{sections_html}
+        {sections_html}
 
         <div class="footer">
           Generated from <code>README.md</code>.

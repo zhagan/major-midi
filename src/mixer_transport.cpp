@@ -13,6 +13,10 @@ namespace
 // Tick-to-sample conversion is rounded, so a seam event can quantize one sample
 // before the theoretical loop boundary. Treat that as "at the boundary".
 constexpr uint64_t kLoopBoundaryGuardSamples = 1;
+constexpr uint8_t  kActivityNote            = 1u << 0;
+constexpr uint8_t  kActivityCc              = 1u << 1;
+constexpr uint8_t  kActivityProgram         = 1u << 2;
+constexpr uint8_t  kActivityPitch           = 1u << 3;
 }
 
 void MixerTransport::Init(float sample_rate, SmfPlayer& player)
@@ -99,10 +103,23 @@ bool MixerTransport::PopScheduled(MidiEv& ev)
     return scheduled_.Pop(ev);
 }
 
+bool MixerTransport::PopDueMidiOutputEvent(uint64_t due_sample, MidiEv& ev)
+{
+    ScopedIrqBlocker lock;
+    MidiEv next{};
+    if(!midi_output_.Peek(next))
+        return false;
+    if(next.atSample > due_sample)
+        return false;
+    return midi_output_.Pop(ev);
+}
+
 void MixerTransport::ClearQueues()
 {
+    ScopedIrqBlocker lock;
     scheduled_.Clear();
     parsed_.Clear();
+    midi_output_.Clear();
     immediate_.Clear();
 }
 
@@ -226,7 +243,9 @@ uint8_t MixerTransport::ApplyTranspose(uint8_t ch, uint8_t note) const
 
 uint8_t MixerTransport::EffectiveVolume(uint8_t ch, const AppState& state) const
 {
-    const uint8_t base = has_live_volume_[ch] ? live_volume_[ch] : state.channels[ch].volume;
+    const uint8_t ui_value = state.channels[ch].volume;
+    const uint8_t base
+        = has_live_volume_[ch] ? ScaleController(live_volume_[ch], ui_value) : ui_value;
     if(state.channels[ch].muted)
         return 0;
     return ScaleController(base, state.sf2_master_volume_max);
@@ -234,18 +253,23 @@ uint8_t MixerTransport::EffectiveVolume(uint8_t ch, const AppState& state) const
 
 uint8_t MixerTransport::EffectivePan(uint8_t ch, const AppState& state) const
 {
-    return has_live_pan_[ch] ? live_pan_[ch] : state.channels[ch].pan;
+    const uint8_t ui_value = state.channels[ch].pan;
+    return has_live_pan_[ch] ? ScaleController(live_pan_[ch], ui_value) : ui_value;
 }
 
 uint8_t MixerTransport::EffectiveReverb(uint8_t ch, const AppState& state) const
 {
-    const uint8_t base = has_live_reverb_[ch] ? live_reverb_[ch] : state.channels[ch].reverb_send;
+    const uint8_t ui_value = state.channels[ch].reverb_send;
+    const uint8_t base = has_live_reverb_[ch] ? ScaleController(live_reverb_[ch], ui_value)
+                                              : ui_value;
     return ScaleController(base, state.sf2_reverb_max);
 }
 
 uint8_t MixerTransport::EffectiveChorus(uint8_t ch, const AppState& state) const
 {
-    const uint8_t base = has_live_chorus_[ch] ? live_chorus_[ch] : state.channels[ch].chorus_send;
+    const uint8_t ui_value = state.channels[ch].chorus_send;
+    const uint8_t base = has_live_chorus_[ch] ? ScaleController(live_chorus_[ch], ui_value)
+                                              : ui_value;
     return ScaleController(base, state.sf2_chorus_max);
 }
 
@@ -343,10 +367,10 @@ void MixerTransport::DispatchEvent(const MidiEv& ev, bool scheduled_source)
         switch(ev.type)
         {
             case EvType::NoteOn:
-            case EvType::NoteOff:
-            case EvType::Program:
-            case EvType::ControlChange:
-            case EvType::PitchBend: channel_activity_[ev.ch] = 1; break;
+            case EvType::NoteOff: channel_activity_[ev.ch] |= kActivityNote; break;
+            case EvType::Program: channel_activity_[ev.ch] |= kActivityProgram; break;
+            case EvType::ControlChange: channel_activity_[ev.ch] |= kActivityCc; break;
+            case EvType::PitchBend: channel_activity_[ev.ch] |= kActivityPitch; break;
             case EvType::AllSoundOff:
             case EvType::AllNotesOff: break;
         }
@@ -407,6 +431,10 @@ void MixerTransport::TransferScheduledFromParser(const AppState& state)
             break;
         if(!EnqueueScheduled(ev))
             break;
+        {
+            ScopedIrqBlocker lock;
+            midi_output_.Push(ev);
+        }
         parsed_.Pop(ev);
     }
 }
@@ -460,6 +488,26 @@ bool MixerTransport::MaybeWrapLoopParser(const AppState& state, uint64_t sample_
     play_start_ticks_  = loop_start_ticks;
     loop_end_sample_   = LoopBoundarySample(state);
     return true;
+}
+
+void MixerTransport::RemapQueuedEventTimes(uint64_t sample_now, double ratio)
+{
+    if(ratio <= 0.0)
+        return;
+
+    ScopedIrqBlocker lock;
+    auto remap = [&](MidiEv& ev) {
+        if(ev.atSample <= sample_now)
+            return;
+        const double delta      = double(ev.atSample - sample_now);
+        const double remapped   = delta * ratio;
+        const uint64_t new_time = sample_now + static_cast<uint64_t>(llround(remapped));
+        ev.atSample             = new_time;
+    };
+
+    scheduled_.Transform(remap);
+    parsed_.Transform(remap);
+    midi_output_.Transform(remap);
 }
 
 void MixerTransport::ProcessAudio(AudioHandle::InputBuffer  in,
@@ -735,9 +783,25 @@ void MixerTransport::Update(const AppState& state)
 
     if(state.bpm != applied_bpm_)
     {
+        const bool     had_applied_bpm = applied_bpm_ > 0;
+        const uint64_t current_cycle   = CurrentCycleSample();
+        const uint64_t current_tick    = CurrentSongTick();
+        const double   old_bpm         = had_applied_bpm ? static_cast<double>(applied_bpm_)
+                                                         : static_cast<double>(state.bpm);
+        const double   new_bpm         = state.bpm > 0 ? static_cast<double>(state.bpm)
+                                                       : old_bpm;
+        const double   ratio           = (new_bpm > 0.0) ? (old_bpm / new_bpm) : 1.0;
         const float scale = file_bpm_ > 0.0f ? static_cast<float>(state.bpm) / file_bpm_
                                              : 1.0f;
         player_->SetTempoScale(scale, sample_clock_);
+        if(player_->IsPlaying() && had_applied_bpm)
+        {
+            RemapQueuedEventTimes(sample_clock_, ratio);
+            const uint64_t new_ticks_into_cycle = player_->TicksFromSamples(current_cycle);
+            play_start_ticks_ = current_tick >= new_ticks_into_cycle
+                                    ? (current_tick - new_ticks_into_cycle)
+                                    : 0;
+        }
         applied_bpm_ = state.bpm;
     }
 

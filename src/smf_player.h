@@ -32,6 +32,7 @@ class SmfPlayer
     uint64_t SamplesFromTicks(uint64_t ticks) const;
     uint64_t SamplesFromTicksRange(uint64_t startTicks, uint64_t lengthTicks) const;
     uint64_t TicksFromSamples(uint64_t samples) const;
+    uint64_t TotalTicks() const { return total_ticks_; }
     uint8_t TimeSigNumerator() const { return ts_num_; }
     uint8_t TimeSigDenominator() const { return ts_den_; }
     const char* GetTrackNameForChannel(uint8_t ch) const;
@@ -103,5 +104,6 @@ class SmfPlayer
     uint16_t tempoCount_      = 0;
     uint32_t tempoTicks_[kMaxTempoPoints]{};
     uint32_t tempoUsec_[kMaxTempoPoints]{};
+    uint64_t total_ticks_      = 0;
     major_midi::MajorMidiSettings settings_{};
 };

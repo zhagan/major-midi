@@ -48,7 +48,10 @@ class UiEventTranslator
     bool          initialized_      = false;
     bool          shift_combo_used_ = false;
     bool          shift_long_sent_  = false;
+    bool          bank_combo_active_ = false;
     uint32_t      shift_down_ms_    = 0;
+    uint32_t      bank_down_ms_[4]{};
+    bool          bank_long_sent_[4]{};
     RawInputState prev_{};
     float         last_knobs_[4]{};
     float         knob_smoothed_[4]{};

@@ -155,8 +155,8 @@ static bool    g_fx_load_shed = false;
 
 namespace
 {
-constexpr int kFxLoadShedOnVoices  = 20;
-constexpr int kFxLoadShedOffVoices = 14;
+constexpr int kFxLoadShedOnVoices  = 16;
+constexpr int kFxLoadShedOffVoices = 12;
 }
 
 bool SynthInit()
@@ -304,6 +304,15 @@ void SynthProgramChange(uint8_t ch, uint8_t program)
     if(!g_tsf)
         return;
     tsf_channel_set_presetnumber(g_tsf, (int)ch, (int)program, ch == 9 ? 1 : 0);
+}
+
+const char* SynthProgramName(uint8_t ch, uint8_t program)
+{
+    if(!g_tsf)
+        return nullptr;
+
+    const int bank = (ch == 9) ? 128 : 0;
+    return tsf_bank_get_presetname(g_tsf, bank, (int)program);
 }
 
 void SynthControlChange(uint8_t ch, uint8_t cc, uint8_t value)

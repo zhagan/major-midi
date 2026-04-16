@@ -37,6 +37,8 @@ class MixerTransport
     int TimeSigDenominator() const;
     uint64_t CurrentCycleSample() const;
     uint64_t CurrentSongTick() const;
+    bool IsPlaying() const { return player_ != nullptr && player_->IsPlaying(); }
+    bool PopDueMidiOutputEvent(uint64_t due_sample, MidiEv& ev);
 
     uint64_t SampleClock() const { return sample_clock_; }
 
@@ -65,6 +67,7 @@ class MixerTransport
     void TransferScheduledFromParser(const AppState& state);
     void FlushLoopBoundaryNotes();
     bool MaybeWrapLoopParser(const AppState& state, uint64_t sample_now);
+    void RemapQueuedEventTimes(uint64_t sample_now, double ratio);
 
     void StartPlayback(const AppState& state);
     void StopPlayback(const AppState& state);
@@ -83,6 +86,7 @@ class MixerTransport
     volatile uint64_t  sample_clock_ = 0;
     EventQueue<kScheduledQueueSize> scheduled_{};
     EventQueue<kParsedQueueSize>    parsed_{};
+    EventQueue<kScheduledQueueSize> midi_output_{};
     EventQueue<kImmediateQueueSize> immediate_{};
     ChannelState       applied_channels_[16]{};
     bool               applied_mute_all_ = false;

@@ -12,6 +12,8 @@ enum class UiMode : uint8_t
     Performance,
     Mute,
     LoopEdit,
+    MidiMonitor,
+    SongInfo,
     Menu,
     MenuPage,
 };
@@ -22,7 +24,15 @@ enum class KnobPage : uint8_t
     Pan,
     ReverbSend,
     ChorusSend,
-    Program,
+    Mute,
+    Bpm,
+};
+
+enum class LoopEditItem : uint8_t
+{
+    Active,
+    Start,
+    Length,
 };
 
 enum class MenuPage : uint8_t
@@ -182,6 +192,17 @@ struct OverlayState
     uint32_t until_ms = 0;
 };
 
+struct MidiMonitorChannelState
+{
+    bool    note_valid       = false;
+    uint8_t note             = 0;
+    bool    pitchbend_valid  = false;
+    uint8_t pitchbend_coarse = 0;
+    bool    cc_valid         = false;
+    uint8_t cc               = 0;
+    uint8_t cc_value         = 0;
+};
+
 struct AppState
 {
     UiMode       ui_mode                 = UiMode::Performance;
@@ -191,16 +212,21 @@ struct AppState
     bool         mute_all                = false;
     bool         transport_playing       = false;
     int          bpm                     = 120;
+    bool         bpm_editing             = false;
+    bool         instrument_focus_active = false;
     size_t       selected_midi_index     = 0;
     size_t       selected_sf2_index      = 0;
     size_t       menu_root_cursor        = 0;
     size_t       menu_page_cursor        = 0;
     bool         menu_editing            = false;
+    LoopEditItem loop_edit_cursor        = LoopEditItem::Active;
+    bool         loop_editing            = false;
     uint8_t      sf2_channel             = 0;
     int          loop_start_measure      = 1;
     int          loop_start_beat         = 1;
     int          loop_start_sub          = 1;
     int          loop_end_measure        = 1;
+    int          loop_end_beat           = 1;
     int          loop_length_beats       = 16;
     uint16_t     song_bpm_override       = 0;
     bool         song_loop_enabled       = false;
@@ -227,11 +253,19 @@ struct AppState
     bool         sync_external           = false;
     bool         sync_locked             = false;
     uint16_t     current_measure         = 1;
+    uint8_t      current_beat            = 1;
+    uint8_t      time_sig_num            = 4;
+    uint8_t      time_sig_den            = 4;
+    uint16_t     song_total_measures     = 1;
+    uint8_t      active_voices           = 0;
+    uint8_t      midi_monitor_scroll     = 0;
     bool         saving_all              = false;
     CvGateConfig cv_gate{};
     MidiRoutingConfig midi_routing{};
     OverlayState overlay{};
     ChannelState channels[16]{};
+    uint8_t      midi_monitor_activity[16]{};
+    MidiMonitorChannelState midi_monitor_channels[16]{};
 };
 
 inline int VisibleChannelIndex(uint8_t bank, uint8_t slot)
@@ -247,7 +281,8 @@ inline const char* KnobPageName(KnobPage page)
         case KnobPage::Pan: return "Pan";
         case KnobPage::ReverbSend: return "Reverb";
         case KnobPage::ChorusSend: return "Chorus";
-        case KnobPage::Program: return "Program";
+        case KnobPage::Mute: return "Mute";
+        case KnobPage::Bpm: return "BPM";
     }
     return "";
 }
@@ -260,7 +295,8 @@ inline const char* KnobPageShortName(KnobPage page)
         case KnobPage::Pan: return "P";
         case KnobPage::ReverbSend: return "R";
         case KnobPage::ChorusSend: return "C";
-        case KnobPage::Program: return "G";
+        case KnobPage::Mute: return "M";
+        case KnobPage::Bpm: return "BPM";
     }
     return "";
 }
@@ -272,6 +308,8 @@ inline const char* UiModeName(UiMode mode)
         case UiMode::Performance: return "Perform";
         case UiMode::Mute: return "Mute";
         case UiMode::LoopEdit: return "Loop";
+        case UiMode::MidiMonitor: return "Monitor";
+        case UiMode::SongInfo: return "Song";
         case UiMode::Menu: return "Menu";
         case UiMode::MenuPage: return "Menu";
     }

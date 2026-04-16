@@ -8,7 +8,7 @@ namespace major_midi
 
 namespace
 {
-constexpr uint32_t kBankRepeatWindowMs = 450;
+constexpr uint8_t  kLoopEditItemCount  = 3;
 
 float MidiToNorm(uint8_t value)
 {
@@ -46,22 +46,21 @@ size_t MenuPageItemCount(const AppState& state, const MediaLibrary& library)
     return 0;
 }
 
-bool AreAllChannelsMuted(const AppState& state)
+const char* LoopEditItemName(LoopEditItem item)
 {
-    for(const auto& channel : state.channels)
+    switch(item)
     {
-        if(!channel.muted)
-            return false;
+        case LoopEditItem::Active: return "Loop Active";
+        case LoopEditItem::Start: return "Loop Start";
+        case LoopEditItem::Length: return "Loop Length";
     }
-    return true;
+    return "Loop";
 }
 } // namespace
 
 void UiController::Init(AppState& state)
 {
     state_ = &state;
-    last_bank_button_    = 0xFF;
-    last_bank_button_ms_ = 0;
     ResetKnobPickup();
 }
 
@@ -106,15 +105,27 @@ void UiController::ExitMenuPage(uint32_t now_ms)
 
 void UiController::HandlePerformanceBankButton(uint8_t bank, uint32_t now_ms)
 {
-    const bool quick_repeat = bank == last_bank_button_
-                              && (now_ms - last_bank_button_ms_) <= kBankRepeatWindowMs;
+    if(state_->knob_page == KnobPage::Mute)
+    {
+        ToggleVisibleMute(bank, now_ms);
+        return;
+    }
 
     SelectBank(bank, now_ms);
-    if(quick_repeat)
-        CycleKnobPage(now_ms);
+}
 
-    last_bank_button_    = bank;
-    last_bank_button_ms_ = now_ms;
+void UiController::NormalizeLoopState()
+{
+    if(state_->loop_start_measure < 1)
+        state_->loop_start_measure = 1;
+    if(state_->loop_length_beats < 1)
+        state_->loop_length_beats = 1;
+
+    if(state_->song_loop_enabled)
+        state_->loop_end_measure
+            = state_->loop_start_measure + ((state_->loop_length_beats + 3) / 4);
+    else
+        state_->loop_end_measure = state_->loop_start_measure;
 }
 
 bool UiController::HandleEvent(const UiEvent& event,
@@ -127,17 +138,71 @@ bool UiController::HandleEvent(const UiEvent& event,
     switch(event.type)
     {
         case UiEventType::BankButtonPressed:
-            if(state_->ui_mode == UiMode::Mute)
-            {
-                ToggleVisibleMute(event.index, now_ms);
-                return true;
-            }
-            if(state_->ui_mode == UiMode::Menu || state_->ui_mode == UiMode::MenuPage)
+            if(state_->ui_mode == UiMode::Menu || state_->ui_mode == UiMode::MenuPage
+               || state_->ui_mode == UiMode::LoopEdit || state_->ui_mode == UiMode::MidiMonitor
+               || state_->ui_mode == UiMode::SongInfo)
                 return true;
             HandlePerformanceBankButton(event.index, now_ms);
             return true;
 
+        case UiEventType::BankComboPressed:
+            if(state_->ui_mode == UiMode::Menu || state_->ui_mode == UiMode::MenuPage)
+                return true;
+            if(event.index == 1)
+            {
+                SetMode(UiMode::MidiMonitor, now_ms, "MIDI Monitor");
+                return true;
+            }
+            if(event.index == 2)
+            {
+                SetMode(UiMode::SongInfo, now_ms, "Transport");
+                return true;
+            }
+            if(event.index == 3)
+            {
+                state_->loop_edit_cursor = LoopEditItem::Active;
+                state_->loop_editing     = false;
+                NormalizeLoopState();
+                SetMode(UiMode::LoopEdit, now_ms, "Loop Edit");
+                return true;
+            }
+            return true;
+
+        case UiEventType::BankButtonLongPress:
+            if(state_->ui_mode == UiMode::Performance
+               && state_->knob_page != KnobPage::Mute
+               && event.index < 4)
+            {
+                const int ch = VisibleChannelIndex(state_->bank, event.index);
+                if(ch >= 0 && ch < 16)
+                {
+                    state_->sf2_channel             = static_cast<uint8_t>(ch);
+                    state_->instrument_focus_active = true;
+                    char text[24];
+                    std::snprintf(text, sizeof(text), "Ch %d Focus", ch + 1);
+                    SetOverlay(*state_, text, now_ms);
+                }
+            }
+            return true;
+
         case UiEventType::PlayButtonPressed:
+            if(state_->ui_mode == UiMode::LoopEdit)
+            {
+                SetMode(UiMode::Performance, now_ms, "Loop Edit Off");
+                return true;
+            }
+            if(state_->ui_mode == UiMode::MidiMonitor)
+            {
+                for(auto& channel : state_->midi_monitor_channels)
+                    channel = MidiMonitorChannelState{};
+                SetOverlay(*state_, "Monitor Cleared", now_ms, 500);
+                return true;
+            }
+            if(state_->ui_mode == UiMode::SongInfo)
+            {
+                SetMode(UiMode::Performance, now_ms, "Song Info Off");
+                return true;
+            }
             if(state_->ui_mode == UiMode::MenuPage)
             {
                 ExitMenuPage(now_ms);
@@ -165,28 +230,9 @@ bool UiController::HandleEvent(const UiEvent& event,
             if(event.index <= 3)
             {
                 SelectBank(event.index, now_ms);
-                SetMode(UiMode::Mute, now_ms, "Mute Mode");
                 return true;
             }
-            if(state_->ui_mode == UiMode::Mute)
-            {
-                return true;
-            }
-            switch(event.index)
-            {
-                case 2:
-                {
-                    const bool mute_all = !AreAllChannelsMuted(*state_);
-                    for(auto& channel : state_->channels)
-                        channel.muted = mute_all;
-                    SetOverlay(*state_, mute_all ? "Mute All On" : "Mute All Off", now_ms);
-                }
-                    return true;
-                case 3:
-                    SetMode(UiMode::LoopEdit, now_ms, "Loop Edit");
-                    return true;
-                default: return false;
-            }
+            return false;
 
         case UiEventType::EncoderPressed:
             if(state_->ui_mode == UiMode::Menu)
@@ -201,7 +247,12 @@ bool UiController::HandleEvent(const UiEvent& event,
             }
             if(state_->ui_mode == UiMode::LoopEdit)
             {
-                SetMode(UiMode::Performance, now_ms, "Loop Edit Off");
+                state_->loop_editing = !state_->loop_editing;
+                SetOverlay(*state_,
+                           state_->loop_editing ? LoopEditItemName(state_->loop_edit_cursor)
+                                                : "Loop Select",
+                           now_ms,
+                           500);
                 return true;
             }
             if(state_->ui_mode == UiMode::Mute)
@@ -209,9 +260,53 @@ bool UiController::HandleEvent(const UiEvent& event,
                 SetMode(UiMode::Performance, now_ms, "Mute Off");
                 return true;
             }
+            if(state_->ui_mode == UiMode::MidiMonitor)
+            {
+                SetMode(UiMode::Performance, now_ms, "Monitor Off");
+                return true;
+            }
+            if(state_->ui_mode == UiMode::SongInfo)
+            {
+                SetMode(UiMode::Performance, now_ms, "Song Info Off");
+                return true;
+            }
+            if(state_->ui_mode == UiMode::Performance
+               && state_->instrument_focus_active
+               && state_->knob_page != KnobPage::Bpm)
+            {
+                state_->instrument_focus_active = false;
+                SetOverlay(*state_, "Bank View", now_ms, 500);
+                return true;
+            }
+            if(state_->ui_mode == UiMode::Performance
+               && state_->knob_page == KnobPage::Bpm)
+            {
+                state_->bpm_editing = !state_->bpm_editing;
+                SetOverlay(*state_,
+                           state_->bpm_editing ? "Edit BPM" : "BPM Locked",
+                           now_ms,
+                           500);
+                return true;
+            }
             return false;
 
         case UiEventType::EncoderLongPress:
+            if(state_->ui_mode == UiMode::LoopEdit)
+            {
+                state_->loop_editing = false;
+                SetMode(UiMode::Performance, now_ms, "Loop Edit Off");
+                return true;
+            }
+            if(state_->ui_mode == UiMode::MidiMonitor)
+            {
+                SetMode(UiMode::Performance, now_ms, "Monitor Off");
+                return true;
+            }
+            if(state_->ui_mode == UiMode::SongInfo)
+            {
+                SetMode(UiMode::Performance, now_ms, "Song Info Off");
+                return true;
+            }
             ToggleMenu(now_ms);
             return true;
 
@@ -229,12 +324,38 @@ bool UiController::HandleEvent(const UiEvent& event,
                     MoveMenuPageCursor(event.delta, library, now_ms);
                 return true;
             }
-            if(state_->ui_mode != UiMode::LoopEdit)
+            if(state_->ui_mode == UiMode::LoopEdit)
             {
-                state_->bpm = ClampInt(state_->bpm + event.delta, 20, 300);
-                char text[24];
-                std::snprintf(text, sizeof(text), "BPM %d", state_->bpm);
-                SetOverlay(*state_, text, now_ms, 700);
+                if(state_->loop_editing)
+                    AdjustLoopEditValue(event.delta, now_ms);
+                else
+                    MoveLoopEditCursor(event.delta, now_ms);
+                return true;
+            }
+            if(state_->ui_mode == UiMode::MidiMonitor)
+            {
+                const int next = ClampInt(static_cast<int>(state_->midi_monitor_scroll)
+                                              + (event.delta > 0 ? 1 : -1),
+                                          0,
+                                          11);
+                state_->midi_monitor_scroll = static_cast<uint8_t>(next);
+                return true;
+            }
+            if(state_->ui_mode == UiMode::SongInfo)
+                return true;
+            if(state_->ui_mode == UiMode::Performance)
+            {
+                if(state_->knob_page == KnobPage::Bpm && state_->bpm_editing)
+                {
+                    state_->bpm = ClampInt(state_->bpm + event.delta, 20, 300);
+                    char text[24];
+                    std::snprintf(text, sizeof(text), "BPM %d", state_->bpm);
+                    SetOverlay(*state_, text, now_ms, 700);
+                }
+                else
+                {
+                    CycleKnobPage(event.delta, now_ms);
+                }
                 return true;
             }
             return false;
@@ -261,10 +382,19 @@ void UiController::SetMode(UiMode mode, uint32_t now_ms, const char* overlay)
     SetOverlay(*state_, overlay, now_ms);
 }
 
-void UiController::CycleKnobPage(uint32_t now_ms)
+void UiController::CycleKnobPage(int32_t delta, uint32_t now_ms)
 {
-    const auto next = (static_cast<uint8_t>(state_->knob_page) + 1) % 5;
-    state_->knob_page = static_cast<KnobPage>(next);
+    if(delta == 0)
+        return;
+
+    const int count = 6;
+    int next = static_cast<int>(state_->knob_page) + (delta > 0 ? 1 : -1);
+    if(next < 0)
+        next = count - 1;
+    if(next >= count)
+        next = 0;
+    state_->knob_page   = static_cast<KnobPage>(next);
+    state_->bpm_editing = false;
     ResetKnobPickup();
     SetOverlay(*state_, KnobPageName(state_->knob_page), now_ms);
 }
@@ -272,6 +402,8 @@ void UiController::CycleKnobPage(uint32_t now_ms)
 void UiController::SelectBank(uint8_t bank, uint32_t now_ms)
 {
     state_->bank = bank % 4;
+    state_->bpm_editing             = false;
+    state_->instrument_focus_active = false;
     ResetKnobPickup();
 
     char text[24];
@@ -325,6 +457,46 @@ void UiController::MoveMenuRootCursor(int32_t delta, uint32_t now_ms)
 
     state_->menu_root_cursor = static_cast<size_t>(next);
     SetOverlay(*state_, "Menu", now_ms, 250);
+}
+
+void UiController::MoveLoopEditCursor(int32_t delta, uint32_t now_ms)
+{
+    if(delta == 0)
+        return;
+
+    int next = static_cast<int>(state_->loop_edit_cursor) + (delta > 0 ? 1 : -1);
+    if(next < 0)
+        next = kLoopEditItemCount - 1;
+    if(next >= kLoopEditItemCount)
+        next = 0;
+
+    state_->loop_edit_cursor = static_cast<LoopEditItem>(next);
+    SetOverlay(*state_, LoopEditItemName(state_->loop_edit_cursor), now_ms, 300);
+}
+
+void UiController::AdjustLoopEditValue(int32_t delta, uint32_t now_ms)
+{
+    if(delta == 0)
+        return;
+
+    switch(state_->loop_edit_cursor)
+    {
+        case LoopEditItem::Active:
+            state_->song_loop_enabled = delta > 0;
+            break;
+        case LoopEditItem::Start:
+            state_->loop_start_measure
+                = ClampInt(state_->loop_start_measure + (delta > 0 ? 1 : -1), 1, 999);
+            break;
+        case LoopEditItem::Length:
+            state_->loop_length_beats
+                = ClampInt(state_->loop_length_beats + (delta > 0 ? 1 : -1), 1, 128);
+            break;
+    }
+
+    NormalizeLoopState();
+    state_->settings_dirty = true;
+    SetOverlay(*state_, LoopEditItemName(state_->loop_edit_cursor), now_ms, 300);
 }
 
 void UiController::MoveMenuPageCursor(int32_t           delta,
@@ -515,40 +687,17 @@ void UiController::AdjustMenuValue(int32_t delta, uint32_t now_ms)
                     break;
                 case 2:
                     state_->song_loop_enabled = !state_->song_loop_enabled;
-                    if(!state_->song_loop_enabled)
-                        state_->loop_end_measure = state_->loop_start_measure;
-                    else if(state_->loop_end_measure <= state_->loop_start_measure)
-                        state_->loop_end_measure = state_->loop_start_measure + 1;
-                    state_->loop_length_beats
-                        = state_->song_loop_enabled
-                              ? (state_->loop_end_measure - state_->loop_start_measure) * 4
-                              : state_->loop_length_beats;
+                    NormalizeLoopState();
                     break;
                 case 3:
                     state_->loop_start_measure
                         = ClampInt(state_->loop_start_measure + (delta > 0 ? 1 : -1), 1, 999);
-                    if(state_->song_loop_enabled
-                       && state_->loop_end_measure <= state_->loop_start_measure)
-                        state_->loop_end_measure = state_->loop_start_measure + 1;
-                    if(!state_->song_loop_enabled)
-                        state_->loop_end_measure = state_->loop_start_measure;
-                    state_->loop_length_beats
-                        = state_->song_loop_enabled
-                              ? (state_->loop_end_measure - state_->loop_start_measure) * 4
-                              : state_->loop_length_beats;
+                    NormalizeLoopState();
                     break;
                 case 4:
-                    state_->loop_end_measure
-                        = ClampInt(state_->loop_end_measure + (delta > 0 ? 1 : -1), 1, 999);
-                    if(state_->loop_end_measure < state_->loop_start_measure)
-                        state_->loop_end_measure = state_->loop_start_measure;
-                    if(state_->song_loop_enabled
-                       && state_->loop_end_measure == state_->loop_start_measure)
-                        state_->loop_end_measure = state_->loop_start_measure + 1;
                     state_->loop_length_beats
-                        = state_->song_loop_enabled
-                              ? (state_->loop_end_measure - state_->loop_start_measure) * 4
-                              : state_->loop_length_beats;
+                        = ClampInt(state_->loop_length_beats + (delta > 0 ? 1 : -1), 1, 128);
+                    NormalizeLoopState();
                     break;
                 default: return;
             }
@@ -828,34 +977,7 @@ bool UiController::HandleKnob(uint8_t index, float value, uint32_t now_ms)
         return false;
 
     if(state_->ui_mode == UiMode::LoopEdit)
-    {
-        const int measure = 1 + static_cast<int>(std::lround(value * 63.0f));
-        if(index == 0)
-        {
-            state_->loop_start_measure = measure;
-            if(state_->loop_end_measure < state_->loop_start_measure)
-                state_->loop_end_measure = state_->loop_start_measure;
-            state_->song_loop_enabled = state_->loop_end_measure > state_->loop_start_measure;
-            if(state_->song_loop_enabled)
-                state_->loop_length_beats
-                    = (state_->loop_end_measure - state_->loop_start_measure) * 4;
-            SetOverlay(*state_, "Loop Start", now_ms, 600);
-            return true;
-        }
-        if(index == 1)
-        {
-            state_->loop_end_measure = measure;
-            if(state_->loop_end_measure < state_->loop_start_measure)
-                state_->loop_end_measure = state_->loop_start_measure;
-            state_->song_loop_enabled = state_->loop_end_measure > state_->loop_start_measure;
-            if(state_->song_loop_enabled)
-                state_->loop_length_beats
-                    = (state_->loop_end_measure - state_->loop_start_measure) * 4;
-            SetOverlay(*state_, "Loop End", now_ms, 600);
-            return true;
-        }
         return false;
-    }
 
     const int ch = VisibleChannelIndex(state_->bank, index);
     if(ch < 0 || ch >= 16)
@@ -872,14 +994,8 @@ bool UiController::HandleKnob(uint8_t index, float value, uint32_t now_ms)
         case KnobPage::ChorusSend:
             target = MidiToNorm(state_->channels[ch].chorus_send);
             break;
-        case KnobPage::Program:
-        {
-            const int program = state_->channels[ch].program_override >= 0
-                                    ? state_->channels[ch].program_override
-                                    : state_->channels[ch].current_program;
-            target = MidiToNorm(static_cast<uint8_t>(program));
-        }
-            break;
+        case KnobPage::Mute: target = state_->channels[ch].muted ? 1.0f : 0.0f; break;
+        case KnobPage::Bpm: return false;
     }
 
     if(!knob_caught_[index])
@@ -900,9 +1016,10 @@ bool UiController::HandleKnob(uint8_t index, float value, uint32_t now_ms)
         case KnobPage::ChorusSend:
             state_->channels[ch].chorus_send = midi_value;
             break;
-        case KnobPage::Program:
-            state_->channels[ch].program_override = static_cast<int8_t>(midi_value);
+        case KnobPage::Mute:
+            state_->channels[ch].muted = value >= 0.5f;
             break;
+        case KnobPage::Bpm: return false;
     }
 
     state_->settings_dirty = true;
