@@ -9,7 +9,7 @@ static constexpr uint8_t kChannelCount = 16;
 
 struct MajorMidiSettings
 {
-    static constexpr uint8_t kVersion = 2;
+    static constexpr uint8_t kVersion = 3;
     static constexpr int8_t  kNoOverride = -1;
 
     uint8_t master_volume_max = 127;
@@ -19,6 +19,8 @@ struct MajorMidiSettings
     int8_t  transpose         = 0;
     uint16_t bpm_override     = 0;
     bool     loop_enabled     = false;
+    uint32_t loop_start_tick  = 0;
+    uint32_t loop_length_ticks = 1920;
     uint16_t loop_start_measure = 1;
     uint8_t  loop_start_beat  = 1;
     uint8_t  loop_start_sub   = 1;

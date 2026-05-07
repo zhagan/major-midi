@@ -10,9 +10,6 @@ using namespace daisy;
 
 namespace
 {
-// Tick-to-sample conversion is rounded, so a seam event can quantize one sample
-// before the theoretical loop boundary. Treat that as "at the boundary".
-constexpr uint64_t kLoopBoundaryGuardSamples = 1;
 constexpr uint8_t  kActivityNote            = 1u << 0;
 constexpr uint8_t  kActivityCc              = 1u << 1;
 constexpr uint8_t  kActivityProgram         = 1u << 2;
@@ -54,6 +51,11 @@ void MixerTransport::Reset(const AppState& state)
     SynthResetChannels();
     has_applied_state_ = false;
     applied_bpm_       = -1;
+    play_start_sample_ = 0;
+    play_start_ticks_  = 0;
+    phase_start_sample_ = 0;
+    phase_start_ticks_  = 0;
+    loop_length_samples_ = 0;
     ApplyMixerState(state, true);
 }
 
@@ -211,16 +213,36 @@ int MixerTransport::TimeSigDenominator() const
     return player_ ? player_->TimeSigDenominator() : 4;
 }
 
+uint16_t MixerTransport::Divisions() const
+{
+    return player_ ? player_->Divisions() : 480;
+}
+
 uint64_t MixerTransport::CurrentCycleSample() const
 {
-    return sample_clock_ >= play_start_sample_ ? (sample_clock_ - play_start_sample_) : 0;
+    return CycleSampleAt(sample_clock_);
+}
+
+uint64_t MixerTransport::CycleSampleAt(uint64_t absolute_sample) const
+{
+    const uint64_t elapsed
+        = absolute_sample >= phase_start_sample_ ? (absolute_sample - phase_start_sample_) : 0;
+    const uint64_t loop_length = loop_length_samples_;
+    if(loop_active_ && loop_length > 0)
+        return elapsed % loop_length;
+    return elapsed;
 }
 
 uint64_t MixerTransport::CurrentSongTick() const
 {
+    return SongTickAt(sample_clock_);
+}
+
+uint64_t MixerTransport::SongTickAt(uint64_t absolute_sample) const
+{
     if(player_ == nullptr)
         return 0;
-    return play_start_ticks_ + player_->TicksFromSamples(CurrentCycleSample());
+    return phase_start_ticks_ + player_->TicksFromSamples(CycleSampleAt(absolute_sample));
 }
 
 uint8_t MixerTransport::ScaleController(uint8_t value, uint8_t max_value) const
@@ -477,9 +499,7 @@ bool MixerTransport::MaybeWrapLoopParser(const AppState& state, uint64_t sample_
 
     const uint64_t loop_start_ticks   = LoopStartTicks(state);
     const uint64_t restart_sample     = LoopEndSample(state);
-    uint64_t       loop_start_samples = player_->SamplesFromTicks(loop_start_ticks);
-    if(loop_start_samples > 0)
-        loop_start_samples -= 1;
+    const uint64_t loop_start_samples = player_->SamplesFromTicks(loop_start_ticks);
 
     FlushLoopBoundaryNotes();
     parsed_.Clear();
@@ -556,6 +576,12 @@ void MixerTransport::ProcessAudio(AudioHandle::InputBuffer  in,
     }
 
     sample_clock_ = block_sample + size;
+    if(loop_active_ && phase_start_sample_ != play_start_sample_
+       && sample_clock_ >= play_start_sample_)
+    {
+        phase_start_sample_ = play_start_sample_;
+        phase_start_ticks_  = play_start_ticks_;
+    }
 }
 
 void MixerTransport::StartPlayback(const AppState& state)
@@ -577,12 +603,12 @@ void MixerTransport::StartPlayback(const AppState& state)
     if(LoopActive(state))
     {
         const uint64_t loop_start_ticks   = LoopStartTicks(state);
-        uint64_t       loop_start_samples = player_->SamplesFromTicks(loop_start_ticks);
-        if(loop_start_samples > 0)
-            loop_start_samples -= 1;
+        const uint64_t loop_start_samples = player_->SamplesFromTicks(loop_start_ticks);
         player_->SeekToSample(loop_start_samples, sample_now);
         play_start_sample_ = sample_now;
         play_start_ticks_  = loop_start_ticks;
+        phase_start_sample_ = sample_now;
+        phase_start_ticks_  = loop_start_ticks;
 
         for(uint8_t ch = 0; ch < 16; ch++)
         {
@@ -601,6 +627,8 @@ void MixerTransport::StartPlayback(const AppState& state)
         player_->Start(sample_now);
         play_start_sample_ = sample_now;
         play_start_ticks_  = 0;
+        phase_start_sample_ = sample_now;
+        phase_start_ticks_  = 0;
     }
 
     ApplyMixerState(state, true);
@@ -621,6 +649,10 @@ void MixerTransport::StopPlayback(const AppState& state)
     }
     SynthPanic();
     SynthResetChannels();
+    play_start_sample_  = sample_clock_;
+    play_start_ticks_   = 0;
+    phase_start_sample_ = sample_clock_;
+    phase_start_ticks_  = 0;
     ApplyMixerState(state, true);
 }
 
@@ -689,68 +721,32 @@ void MixerTransport::ApplyMixerState(const AppState& state, bool force)
 bool MixerTransport::LoopActive(const AppState& state) const
 {
     return state.song_loop_enabled
-           && state.loop_length_beats > 0;
+           && state.loop_length_ticks > 0;
 }
 
 uint64_t MixerTransport::LoopStartTicks(const AppState& state) const
 {
-    const uint16_t divisions = player_->Divisions();
-    if(divisions == 0)
-        return 0;
-
-    const int ts_num            = player_->TimeSigNumerator() > 0 ? player_->TimeSigNumerator() : 4;
-    const int ts_den            = player_->TimeSigDenominator() > 0 ? player_->TimeSigDenominator() : 4;
-    const int beats_per_measure = ts_num;
-    const int ticks_per_beat    = (divisions * 4) / ts_den;
-    const int sub_per_beat      = ts_den > 0 ? (16 / ts_den) : 4;
-    const int ticks_per_sub     = sub_per_beat > 0 ? (ticks_per_beat / sub_per_beat) : ticks_per_beat;
-
-    const int measure_index = state.loop_start_measure > 1 ? (state.loop_start_measure - 1) : 0;
-    const int beat_index    = state.loop_start_beat > 1 ? (state.loop_start_beat - 1) : 0;
-    const int sub_index     = state.loop_start_sub > 1 ? (state.loop_start_sub - 1) : 0;
-
-    return static_cast<uint64_t>(measure_index) * static_cast<uint64_t>(beats_per_measure)
-               * static_cast<uint64_t>(ticks_per_beat)
-           + static_cast<uint64_t>(beat_index) * static_cast<uint64_t>(ticks_per_beat)
-           + static_cast<uint64_t>(sub_index) * static_cast<uint64_t>(ticks_per_sub);
+    return static_cast<uint64_t>(state.loop_start_tick);
 }
 
 uint64_t MixerTransport::LoopLengthTicks(const AppState& state) const
 {
-    const uint16_t divisions = player_->Divisions();
-    if(divisions == 0)
-        return 0;
-
-    const int ts_den         = player_->TimeSigDenominator() > 0 ? player_->TimeSigDenominator() : 4;
-    const int ticks_per_beat = (divisions * 4) / ts_den;
-    return static_cast<uint64_t>(state.loop_length_beats > 0 ? state.loop_length_beats : 1)
-           * static_cast<uint64_t>(ticks_per_beat);
+    return static_cast<uint64_t>(state.loop_length_ticks > 0 ? state.loop_length_ticks : 1);
 }
 
 uint64_t MixerTransport::LoopLengthSamples(const AppState& state) const
 {
-    const int bpm = state.bpm > 0 ? state.bpm : 120;
-    const int ts_den = player_->TimeSigDenominator() > 0 ? player_->TimeSigDenominator() : 4;
-    const int beat_count = state.loop_length_beats > 0 ? state.loop_length_beats : 1;
-
-    const double quarter_note_samples = (sample_rate_ * 60.0) / static_cast<double>(bpm);
-    const double beat_unit_scale      = 4.0 / static_cast<double>(ts_den);
-    const double loop_samples = quarter_note_samples * beat_unit_scale
-                                * static_cast<double>(beat_count);
-    return static_cast<uint64_t>(llround(loop_samples));
+    return player_->SamplesFromTicksRange(LoopStartTicks(state), LoopLengthTicks(state));
 }
 
 uint64_t MixerTransport::LoopEndSample(const AppState& state) const
 {
-    return play_start_sample_ + LoopLengthSamples(state);
+    return phase_start_sample_ + LoopLengthSamples(state);
 }
 
 uint64_t MixerTransport::LoopBoundarySample(const AppState& state) const
 {
-    const uint64_t loop_end_sample = LoopEndSample(state);
-    if(loop_end_sample > kLoopBoundaryGuardSamples)
-        return loop_end_sample - kLoopBoundaryGuardSamples;
-    return 0;
+    return LoopEndSample(state);
 }
 
 uint64_t MixerTransport::MeasureStartTicks(int measure) const
@@ -779,6 +775,7 @@ void MixerTransport::Update(const AppState& state)
     chorus_max_        = state.sf2_chorus_max;
     transpose_         = state.sf2_transpose;
     loop_active_       = LoopActive(state);
+    loop_length_samples_ = loop_active_ ? LoopLengthSamples(state) : 0;
     loop_end_sample_   = loop_active_ ? LoopBoundarySample(state) : UINT64_MAX;
 
     if(state.bpm != applied_bpm_)
@@ -798,9 +795,9 @@ void MixerTransport::Update(const AppState& state)
         {
             RemapQueuedEventTimes(sample_clock_, ratio);
             const uint64_t new_ticks_into_cycle = player_->TicksFromSamples(current_cycle);
-            play_start_ticks_ = current_tick >= new_ticks_into_cycle
-                                    ? (current_tick - new_ticks_into_cycle)
-                                    : 0;
+            phase_start_ticks_ = current_tick >= new_ticks_into_cycle
+                                     ? (current_tick - new_ticks_into_cycle)
+                                     : 0;
         }
         applied_bpm_ = state.bpm;
     }

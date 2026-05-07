@@ -62,6 +62,10 @@ uint32_t          channel_flash_until[16]{};
 uint32_t          channel_monitor_until[16]{};
 volatile uint64_t sync_sample_counter      = 0;
 volatile uint32_t pending_midi_clock_edges = 0;
+volatile float    audio_output_gain        = 1.0f;
+volatile float    audio_fade_target_gain   = 1.0f;
+volatile float    audio_fade_step          = 0.0f;
+volatile uint32_t audio_fade_remaining     = 0;
 
 constexpr uint32_t kLedFlashMs = 90;
 constexpr uint32_t kMonitorFlashMs         = 250;
@@ -71,6 +75,7 @@ constexpr uint32_t kRenderIntervalUiActiveMs   = 100;
 constexpr uint32_t kUiActiveHoldMs             = 1200;
 constexpr uint64_t kScheduledMidiLeadSamples   = 512;
 constexpr uint32_t kMidiTxTimerRateHz          = 2000;
+constexpr uint32_t kAudioFadeMs                = 8;
 enum class MidiOutputKind : uint8_t
 {
     Notes,
@@ -82,6 +87,9 @@ enum class MidiOutputKind : uint8_t
 
 void UpdateMidiMonitor(const MidiEvent& msg);
 void UpdateMidiMonitor(const MidiEv& ev);
+uint16_t TickToMeasure(uint64_t tick, const SmfPlayer& player);
+uint8_t  TickToBeat(uint64_t tick, const SmfPlayer& player);
+void     SyncLoopDisplayFieldsFromTicks(AppState& state, const SmfPlayer& player);
 
 bool MidiOutputEnabled(const MidiOutputRouting& routing, MidiOutputKind kind)
 {
@@ -104,6 +112,18 @@ bool GateInputSyncEnabled(const CvGateConfig& config, size_t index)
 bool AnyGateInputSyncEnabled(const CvGateConfig& config)
 {
     return GateInputSyncEnabled(config, 0) || GateInputSyncEnabled(config, 1);
+}
+
+const char* Sf2LoadOverlayText()
+{
+    switch(SynthLastLoadResult())
+    {
+        case SynthLoadResult::Ok: return "SF2 Loaded";
+        case SynthLoadResult::FileOpenFailed: return "SF2 Open Fail";
+        case SynthLoadResult::FileTooLarge: return "SF2 Too Big";
+        case SynthLoadResult::ParseFailed: return "SF2 Load Fail";
+    }
+    return "SF2 Load Fail";
 }
 
 const char* PersistWriteStageName(PersistWriteStage stage)
@@ -148,6 +168,85 @@ const char* FatFsResultName(int code)
     }
 }
 
+void SetAudioOutputGainImmediate(float gain)
+{
+    if(gain < 0.0f)
+        gain = 0.0f;
+    if(gain > 1.0f)
+        gain = 1.0f;
+
+    ScopedIrqBlocker lock;
+    audio_output_gain      = gain;
+    audio_fade_target_gain = gain;
+    audio_fade_step        = 0.0f;
+    audio_fade_remaining   = 0;
+}
+
+void StartAudioFade(float target_gain, uint32_t duration_ms)
+{
+    if(target_gain < 0.0f)
+        target_gain = 0.0f;
+    if(target_gain > 1.0f)
+        target_gain = 1.0f;
+
+    const uint32_t fade_samples
+        = duration_ms == 0
+              ? 0
+              : static_cast<uint32_t>((hw.AudioSampleRate() * static_cast<float>(duration_ms))
+                                      / 1000.0f);
+
+    ScopedIrqBlocker lock;
+    if(fade_samples == 0)
+    {
+        audio_output_gain      = target_gain;
+        audio_fade_target_gain = target_gain;
+        audio_fade_step        = 0.0f;
+        audio_fade_remaining   = 0;
+        return;
+    }
+
+    audio_fade_target_gain = target_gain;
+    audio_fade_remaining   = fade_samples;
+    audio_fade_step
+        = (audio_fade_target_gain - audio_output_gain) / static_cast<float>(fade_samples);
+}
+
+void ApplyAudioOutputGain(AudioHandle::OutputBuffer out, size_t size)
+{
+    float    gain      = audio_output_gain;
+    float    step      = audio_fade_step;
+    float    target    = audio_fade_target_gain;
+    uint32_t remaining = audio_fade_remaining;
+
+    for(size_t i = 0; i < size; i++)
+    {
+        out[0][i] *= gain;
+        out[1][i] *= gain;
+
+        if(remaining > 0)
+        {
+            gain += step;
+            remaining--;
+            if(remaining == 0)
+                gain = target;
+        }
+    }
+
+    audio_output_gain    = gain;
+    audio_fade_remaining = remaining;
+    if(remaining == 0)
+        audio_fade_step = 0.0f;
+}
+
+void WaitForAudioFadeComplete(uint32_t timeout_ms)
+{
+    while(audio_fade_remaining > 0 && timeout_ms > 0)
+    {
+        System::Delay(1);
+        timeout_ms--;
+    }
+}
+
 struct SaveProgressContext
 {
     uint32_t    now_ms;
@@ -185,7 +284,6 @@ void BuildSongConfigPath(const char* midi_path, char* out, size_t out_sz)
 void ResetSongScopedSettings()
 {
     app_state.cv_gate = CvGateConfig{};
-    app_state.cv_gate.gate_in[0].mode = GateInMode::SyncIn;
     app_state.midi_routing            = MidiRoutingConfig{};
     for(int ch = 0; ch < 16; ch++)
     {
@@ -593,21 +691,36 @@ void SyncSongStateFromPlayer()
     }
     if(app_state.sf2_max_voices < 4 || app_state.sf2_max_voices > 32)
         app_state.sf2_max_voices = 16;
-    app_state.loop_start_measure = settings.loop_start_measure < 1 ? 1 : settings.loop_start_measure;
-    app_state.loop_start_beat    = settings.loop_start_beat < 1 ? 1 : settings.loop_start_beat;
-    app_state.loop_start_sub     = settings.loop_start_sub < 1 ? 1 : settings.loop_start_sub;
-    app_state.loop_length_beats  = settings.loop_length_beats < 1 ? 1 : settings.loop_length_beats;
-
-    if(settings.loop_enabled)
-    {
-        const int measure_span
-            = settings.loop_length_beats > 0 ? ((settings.loop_length_beats + 3) / 4) : 1;
-        app_state.loop_end_measure = app_state.loop_start_measure + measure_span;
-    }
-    else
-    {
-        app_state.loop_end_measure = app_state.loop_start_measure;
-    }
+    const uint16_t divisions = smf_player.Divisions();
+    const int ts_den = smf_player.TimeSigDenominator() > 0 ? smf_player.TimeSigDenominator() : 4;
+    const int ts_num = smf_player.TimeSigNumerator() > 0 ? smf_player.TimeSigNumerator() : 4;
+    app_state.song_divisions = divisions > 0 ? divisions : 480;
+    app_state.time_sig_num   = static_cast<uint8_t>(ts_num);
+    app_state.time_sig_den   = static_cast<uint8_t>(ts_den);
+    const uint32_t ticks_per_beat
+        = divisions > 0 ? ((static_cast<uint32_t>(divisions) * 4u) / static_cast<uint32_t>(ts_den))
+                        : 0u;
+    const uint32_t sub_per_beat  = ts_den > 0 ? static_cast<uint32_t>(16 / ts_den) : 4u;
+    const uint32_t ticks_per_sub = (sub_per_beat > 0 && ticks_per_beat > 0)
+                                       ? (ticks_per_beat / sub_per_beat)
+                                       : ticks_per_beat;
+    const uint32_t legacy_start_tick
+        = static_cast<uint32_t>((settings.loop_start_measure > 1 ? (settings.loop_start_measure - 1) : 0)
+                                * ts_num * ticks_per_beat
+                                + (settings.loop_start_beat > 1 ? (settings.loop_start_beat - 1) : 0)
+                                      * ticks_per_beat
+                                + (settings.loop_start_sub > 1 ? (settings.loop_start_sub - 1) : 0)
+                                      * ticks_per_sub);
+    app_state.loop_start_tick
+        = settings.loop_start_tick > 0 ? settings.loop_start_tick : legacy_start_tick;
+    app_state.loop_length_ticks
+        = settings.loop_length_ticks > 0
+              ? settings.loop_length_ticks
+              : static_cast<uint32_t>((settings.loop_length_beats > 0 ? settings.loop_length_beats : 1)
+                                      * ticks_per_beat);
+    if(app_state.loop_length_ticks < 1)
+        app_state.loop_length_ticks = ticks_per_beat > 0 ? ticks_per_beat : 1;
+    SyncLoopDisplayFieldsFromTicks(app_state, smf_player);
 }
 
 void ApplyAppSettings()
@@ -643,30 +756,12 @@ void ApplyAppSettings()
         settings.chorus_send[ch]      = app_state.channels[ch].chorus_send;
         settings.muted[ch]            = app_state.channels[ch].muted;
     }
-    settings.loop_start_measure
-        = app_state.loop_start_measure < 1 ? 1 : app_state.loop_start_measure;
-    settings.loop_start_beat = app_state.loop_start_beat < 1 ? 1 : app_state.loop_start_beat;
-    settings.loop_start_sub  = app_state.loop_start_sub < 1 ? 1 : app_state.loop_start_sub;
-
-    if(app_state.song_loop_enabled)
-    {
-        if(app_state.loop_end_measure <= app_state.loop_start_measure)
-            app_state.loop_end_measure = app_state.loop_start_measure + 1;
-        if(app_state.loop_length_beats < 1)
-        {
-            app_state.loop_length_beats
-                = (app_state.loop_end_measure - app_state.loop_start_measure) * 4;
-            if(app_state.loop_length_beats < 1)
-                app_state.loop_length_beats = 4;
-        }
-        settings.loop_length_beats = static_cast<uint16_t>(app_state.loop_length_beats);
-    }
-    else
-    {
-        app_state.loop_end_measure = app_state.loop_start_measure;
-        settings.loop_length_beats = static_cast<uint16_t>(app_state.loop_length_beats < 1 ? 4
-                                                                                            : app_state.loop_length_beats);
-    }
+    settings.loop_start_tick   = app_state.loop_start_tick;
+    settings.loop_length_ticks = app_state.loop_length_ticks < 1 ? 1 : app_state.loop_length_ticks;
+    settings.loop_start_measure = 1;
+    settings.loop_start_beat    = 1;
+    settings.loop_start_sub     = 1;
+    settings.loop_length_beats  = 16;
 
     if(app_state.song_bpm_override > 0)
         app_state.bpm = app_state.song_bpm_override;
@@ -720,27 +815,43 @@ uint8_t TickToBeat(uint64_t tick, const SmfPlayer& player)
     return static_cast<uint8_t>(beat_index + 1u);
 }
 
-uint64_t MeasureBeatToTick(int measure, int beat, const SmfPlayer& player)
+void SyncLoopDisplayFieldsFromTicks(AppState& state, const SmfPlayer& player)
 {
-    const uint16_t divisions = player.Divisions();
-    if(divisions == 0)
-        return 0;
+    state.loop_end_tick    = state.loop_start_tick + state.loop_length_ticks;
+    state.loop_end_measure = TickToMeasure(state.loop_end_tick, player);
+    state.loop_end_beat    = TickToBeat(state.loop_end_tick, player);
 
-    const int numerator   = player.TimeSigNumerator() > 0 ? player.TimeSigNumerator() : 4;
-    const int denominator = player.TimeSigDenominator() > 0 ? player.TimeSigDenominator() : 4;
-    const uint64_t ticks_per_beat
-        = (static_cast<uint64_t>(divisions) * 4u) / static_cast<uint64_t>(denominator);
-    const uint64_t ticks_per_measure = ticks_per_beat * static_cast<uint64_t>(numerator);
-    const int safe_measure = measure < 1 ? 1 : measure;
-    const int safe_beat    = beat < 1 ? 1 : (beat > numerator ? numerator : beat);
-    return static_cast<uint64_t>(safe_measure - 1) * ticks_per_measure
-           + static_cast<uint64_t>(safe_beat - 1) * ticks_per_beat;
+    const uint16_t divisions = player.Divisions();
+    const int numerator      = player.TimeSigNumerator() > 0 ? player.TimeSigNumerator() : 4;
+    const int denominator    = player.TimeSigDenominator() > 0 ? player.TimeSigDenominator() : 4;
+    const uint32_t ticks_per_beat
+        = divisions > 0 ? ((static_cast<uint32_t>(divisions) * 4u) / static_cast<uint32_t>(denominator))
+                        : 0u;
+    const uint32_t ticks_per_measure
+        = ticks_per_beat * static_cast<uint32_t>(numerator);
+
+    if(ticks_per_beat == 0 || ticks_per_measure == 0)
+    {
+        state.loop_start_measure   = 1;
+        state.loop_start_beat      = 1;
+        state.loop_length_measures = 0;
+        state.loop_length_beats    = 0;
+        return;
+    }
+
+    state.loop_start_measure
+        = static_cast<int>(state.loop_start_tick / ticks_per_measure) + 1;
+    state.loop_start_beat
+        = static_cast<int>((state.loop_start_tick % ticks_per_measure) / ticks_per_beat) + 1;
+
+    const uint32_t total_beats = state.loop_length_ticks / ticks_per_beat;
+    state.loop_length_measures = static_cast<int>(total_beats / static_cast<uint32_t>(numerator));
+    state.loop_length_beats    = static_cast<int>(total_beats % static_cast<uint32_t>(numerator));
 }
 
 void InitDefaultState()
 {
     app_state = AppState{};
-    app_state.cv_gate.gate_in[0].mode = GateInMode::SyncIn;
     for(int ch = 0; ch < 16; ch++)
     {
         app_state.channels[ch].volume      = 100;
@@ -781,8 +892,9 @@ bool EnsureAudioRunning()
                 gate_clock_sync.ProcessSample(gate_edge, sample_time);
             }
             sync_sample_counter += size;
-            transport.ProcessAudio(in, out, size);
             cv_gate_engine.Update(app_state, transport);
+            transport.ProcessAudio(in, out, size);
+            ApplyAudioOutputGain(out, size);
         });
         audio_started = true;
     }
@@ -816,7 +928,14 @@ bool LoadSelectedMedia(bool reload_midi, bool reload_sf2, uint32_t now_ms)
     const bool was_playing = app_state.transport_playing;
     app_state.transport_playing = false;
 
+    if(audio_started)
+    {
+        StartAudioFade(0.0f, kAudioFadeMs);
+        WaitForAudioFadeComplete(kAudioFadeMs + 8);
+    }
+
     StopAudioIfRunning();
+    SetAudioOutputGainImmediate(0.0f);
     transport.Reset(app_state);
 
     bool sf_ok   = true;
@@ -858,12 +977,15 @@ bool LoadSelectedMedia(bool reload_midi, bool reload_sf2, uint32_t now_ms)
     }
 
     if(sf_ok)
+    {
         EnsureAudioRunning();
+        StartAudioFade(1.0f, kAudioFadeMs);
+    }
 
     if(reload_midi)
         SetOverlay(app_state, midi_ok ? "MIDI Loaded" : "MIDI Load Fail", now_ms);
     else if(reload_sf2)
-        SetOverlay(app_state, sf_ok ? "SF2 Loaded" : "SF2 Load Fail", now_ms);
+        SetOverlay(app_state, sf_ok ? "SF2 Loaded" : Sf2LoadOverlayText(), now_ms);
 
     app_state.pending_midi_load = false;
     app_state.pending_sf2_load  = false;
@@ -975,7 +1097,7 @@ int main(void)
     hw.Init();
     hw.SetAudioBlockSize(24);
     if(kEnableUsbLog)
-        hw.StartLog(false);
+        hw.StartLog(true);
 
     InitDefaultState();
     ui_controller.Init(app_state);
@@ -1042,6 +1164,9 @@ int main(void)
     bool     ui_dirty            = true;
     bool     last_transport_playing = false;
     uint64_t next_midi_clock_sample = 0;
+    uint32_t last_transport_debug_ms = render_ms;
+    uint64_t last_logged_song_tick   = 0;
+    uint32_t loop_wrap_count         = 0;
     while(1)
     {
         const uint32_t now = System::GetNow();
@@ -1146,6 +1271,21 @@ int main(void)
         if(audio_started)
             transport.Update(effective_state);
 
+        CvGateEngine::LoopSyncDebugEvent loop_sync_debug{};
+        while(cv_gate_engine.ConsumeLoopSyncDebugEvent(loop_sync_debug))
+        {
+            LOG("LoopSync G%lu loop=%lu expected=%lu seen=%lu tail=%lu head=%lu forced=%lu blk=%lu->%lu",
+                static_cast<unsigned long>(loop_sync_debug.gate_index + 1u),
+                static_cast<unsigned long>(loop_sync_debug.loop_index),
+                static_cast<unsigned long>(loop_sync_debug.expected),
+                static_cast<unsigned long>(loop_sync_debug.seen),
+                static_cast<unsigned long>(loop_sync_debug.wrap_tail),
+                static_cast<unsigned long>(loop_sync_debug.wrap_head),
+                static_cast<unsigned long>(loop_sync_debug.forced ? 1u : 0u),
+                static_cast<unsigned long>(loop_sync_debug.block_start_tick),
+                static_cast<unsigned long>(loop_sync_debug.block_end_tick));
+        }
+
         if(audio_started && effective_state.transport_playing && !transport.IsPlaying())
         {
             app_state.transport_playing      = false;
@@ -1192,6 +1332,44 @@ int main(void)
 
         last_transport_playing = effective_state.transport_playing;
 
+        effective_state.current_song_tick
+            = effective_state.transport_playing ? static_cast<uint32_t>(transport.CurrentSongTick())
+                                                : 0u;
+
+        if(effective_state.transport_playing)
+        {
+            const uint64_t current_song_tick = transport.CurrentSongTick();
+            if(last_transport_playing && current_song_tick < last_logged_song_tick)
+            {
+                loop_wrap_count++;
+                LOG("LoopWrap count=%lu tick=%lu->%lu start=%lu len=%lu",
+                    static_cast<unsigned long>(loop_wrap_count),
+                    static_cast<unsigned long>(last_logged_song_tick),
+                    static_cast<unsigned long>(current_song_tick),
+                    static_cast<unsigned long>(effective_state.loop_start_tick),
+                    static_cast<unsigned long>(effective_state.loop_length_ticks));
+            }
+
+            if((now - last_transport_debug_ms) >= 500)
+            {
+                last_transport_debug_ms = now;
+                LOG("LoopStat play=%lu tick=%lu meas=%lu beat=%lu start=%lu len=%lu div=%lu mode=%lu",
+                    static_cast<unsigned long>(effective_state.transport_playing ? 1u : 0u),
+                    static_cast<unsigned long>(current_song_tick),
+                    static_cast<unsigned long>(TickToMeasure(current_song_tick, smf_player)),
+                    static_cast<unsigned long>(TickToBeat(current_song_tick, smf_player)),
+                    static_cast<unsigned long>(effective_state.loop_start_tick),
+                    static_cast<unsigned long>(effective_state.loop_length_ticks),
+                    static_cast<unsigned long>(smf_player.Divisions()),
+                    static_cast<unsigned long>(app_state.cv_gate.gate_out[0].mode));
+            }
+            last_logged_song_tick = current_song_tick;
+        }
+        else
+        {
+            last_logged_song_tick = 0;
+        }
+
         effective_state.current_measure
             = effective_state.transport_playing
                   ? TickToMeasure(transport.CurrentSongTick(), smf_player)
@@ -1200,31 +1378,14 @@ int main(void)
             = effective_state.transport_playing
                   ? TickToBeat(transport.CurrentSongTick(), smf_player)
                   : 1;
+        effective_state.song_divisions
+            = smf_player.Divisions() > 0 ? smf_player.Divisions() : effective_state.song_divisions;
         effective_state.time_sig_num
             = smf_player.TimeSigNumerator() > 0 ? smf_player.TimeSigNumerator() : 4;
         effective_state.time_sig_den
             = smf_player.TimeSigDenominator() > 0 ? smf_player.TimeSigDenominator() : 4;
         effective_state.song_total_measures = TickToMeasure(smf_player.TotalTicks(), smf_player);
-        const uint64_t loop_start_tick
-            = MeasureBeatToTick(effective_state.loop_start_measure,
-                                effective_state.loop_start_beat,
-                                smf_player);
-        const uint16_t divisions = smf_player.Divisions();
-        const uint64_t ticks_per_beat
-            = divisions > 0
-                  ? ((static_cast<uint64_t>(divisions) * 4u)
-                     / static_cast<uint64_t>(effective_state.time_sig_den > 0
-                                                 ? effective_state.time_sig_den
-                                                 : 4))
-                  : 0;
-        const uint64_t loop_end_tick
-            = loop_start_tick
-              + static_cast<uint64_t>(effective_state.loop_length_beats > 0
-                                          ? effective_state.loop_length_beats
-                                          : 1)
-                    * ticks_per_beat;
-        effective_state.loop_end_measure = TickToMeasure(loop_end_tick, smf_player);
-        effective_state.loop_end_beat    = TickToBeat(loop_end_tick, smf_player);
+        SyncLoopDisplayFieldsFromTicks(effective_state, smf_player);
         for(uint8_t ch = 0; ch < 16; ch++)
             app_state.channels[ch].current_program = transport.ChannelProgram(ch);
 

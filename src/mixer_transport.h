@@ -35,8 +35,12 @@ class MixerTransport
     uint8_t ChannelProgram(uint8_t ch) const;
     int TimeSigNumerator() const;
     int TimeSigDenominator() const;
+    uint16_t Divisions() const;
     uint64_t CurrentCycleSample() const;
     uint64_t CurrentSongTick() const;
+    uint64_t CycleSampleAt(uint64_t absolute_sample) const;
+    uint64_t SongTickAt(uint64_t absolute_sample) const;
+    uint64_t CurrentLoopLengthSamples() const { return loop_length_samples_; }
     bool IsPlaying() const { return player_ != nullptr && player_->IsPlaying(); }
     bool PopDueMidiOutputEvent(uint64_t due_sample, MidiEv& ev);
 
@@ -93,6 +97,8 @@ class MixerTransport
     bool               has_applied_state_ = false;
     uint64_t           play_start_sample_ = 0;
     uint64_t           play_start_ticks_  = 0;
+    uint64_t           phase_start_sample_ = 0;
+    uint64_t           phase_start_ticks_  = 0;
     float              file_bpm_          = 120.0f;
     int                applied_bpm_       = -1;
     volatile uint8_t   channel_activity_[16]{};
@@ -119,6 +125,7 @@ class MixerTransport
     int8_t             highest_note_[16]{};
     int8_t             lowest_note_[16]{};
     volatile uint64_t  loop_end_sample_   = UINT64_MAX;
+    volatile uint64_t  loop_length_samples_ = 0;
     volatile bool      loop_active_       = false;
     MidiOutputCallback midi_output_callback_ = nullptr;
     void*              midi_output_context_  = nullptr;

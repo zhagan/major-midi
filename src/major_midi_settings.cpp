@@ -258,6 +258,8 @@ void MajorMidiSettings::Reset()
     transpose         = 0;
     bpm_override      = 0;
     loop_enabled      = false;
+    loop_start_tick   = 0;
+    loop_length_ticks = 1920;
     loop_start_measure = 1;
     loop_start_beat   = 1;
     loop_start_sub    = 1;
@@ -284,7 +286,7 @@ bool ParseMajorMidiPayload(const uint8_t* data,
 
     const uint8_t version = data[4];
     const uint8_t flags   = data[5];
-    if(version != 1 && version != MajorMidiSettings::kVersion)
+    if(version != 1 && version != 2 && version != MajorMidiSettings::kVersion)
         return false;
 
     settings.master_volume_max = Clamp7Bit(data[6]);
@@ -298,26 +300,38 @@ bool ParseMajorMidiPayload(const uint8_t* data,
 
     if(flags & kFlagLoopSettings)
     {
-        if(offset + 7 > size)
-            return false;
-        settings.loop_enabled
-            = data[offset++] != 0;
-        settings.loop_start_measure
-            = (uint16_t(data[offset]) << 8) | data[offset + 1];
-        offset += 2;
-        settings.loop_start_beat  = data[offset++];
-        settings.loop_start_sub   = data[offset++];
-        settings.loop_length_beats
-            = (uint16_t(data[offset]) << 8) | data[offset + 1];
-        offset += 2;
-        if(settings.loop_start_measure < 1)
-            settings.loop_start_measure = 1;
-        if(settings.loop_start_beat < 1)
-            settings.loop_start_beat = 1;
-        if(settings.loop_start_sub < 1)
-            settings.loop_start_sub = 1;
-        if(settings.loop_length_beats < 1)
-            settings.loop_length_beats = 1;
+        settings.loop_enabled = data[offset++] != 0;
+        if(version >= 3)
+        {
+            if(offset + 8 > size)
+                return false;
+            settings.loop_start_tick   = ReadUint32BE(data + offset);
+            settings.loop_length_ticks = ReadUint32BE(data + offset + 4);
+            offset += 8;
+            if(settings.loop_length_ticks < 1)
+                settings.loop_length_ticks = 1;
+        }
+        else
+        {
+            if(offset + 6 > size)
+                return false;
+            settings.loop_start_measure
+                = (uint16_t(data[offset]) << 8) | data[offset + 1];
+            offset += 2;
+            settings.loop_start_beat  = data[offset++];
+            settings.loop_start_sub   = data[offset++];
+            settings.loop_length_beats
+                = (uint16_t(data[offset]) << 8) | data[offset + 1];
+            offset += 2;
+            if(settings.loop_start_measure < 1)
+                settings.loop_start_measure = 1;
+            if(settings.loop_start_beat < 1)
+                settings.loop_start_beat = 1;
+            if(settings.loop_start_sub < 1)
+                settings.loop_start_sub = 1;
+            if(settings.loop_length_beats < 1)
+                settings.loop_length_beats = 1;
+        }
     }
 
     if(flags & kFlagProgramOverrides)
@@ -388,9 +402,8 @@ size_t BuildMajorMidiPayload(const MajorMidiSettings& settings,
         flags |= kFlagProgramOverrides;
     if(HasAnyOverride(settings.pan_override))
         flags |= kFlagPanOverrides;
-    if(settings.loop_enabled || settings.loop_start_measure != 1
-       || settings.loop_start_beat != 1 || settings.loop_start_sub != 1
-       || settings.loop_length_beats != 16)
+    if(settings.loop_enabled || settings.loop_start_tick != 0
+       || settings.loop_length_ticks != 1920)
         flags |= kFlagLoopSettings;
     flags |= kFlagChannelVolume;
     flags |= kFlagChannelReverb;
@@ -406,7 +419,7 @@ size_t BuildMajorMidiPayload(const MajorMidiSettings& settings,
 
     size_t size = 13;
     if(flags & kFlagLoopSettings)
-        size += 7;
+        size += 9;
     if(flags & kFlagProgramOverrides)
         size += kChannelCount;
     if(flags & kFlagPanOverrides)
@@ -436,12 +449,10 @@ size_t BuildMajorMidiPayload(const MajorMidiSettings& settings,
     if(flags & kFlagLoopSettings)
     {
         out[offset++] = settings.loop_enabled ? 1 : 0;
-        out[offset++] = (uint8_t)((settings.loop_start_measure >> 8) & 0xFF);
-        out[offset++] = (uint8_t)(settings.loop_start_measure & 0xFF);
-        out[offset++] = settings.loop_start_beat;
-        out[offset++] = settings.loop_start_sub;
-        out[offset++] = (uint8_t)((settings.loop_length_beats >> 8) & 0xFF);
-        out[offset++] = (uint8_t)(settings.loop_length_beats & 0xFF);
+        WriteUint32BE(out + offset, settings.loop_start_tick);
+        offset += 4;
+        WriteUint32BE(out + offset, settings.loop_length_ticks);
+        offset += 4;
     }
     if(flags & kFlagProgramOverrides)
     {

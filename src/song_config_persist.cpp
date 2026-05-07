@@ -7,7 +7,7 @@ namespace major_midi
 namespace
 {
 static constexpr uint8_t kMagic[4] = {'M', 'M', 'S', 'C'};
-static constexpr uint8_t kVersion  = 1;
+static constexpr uint8_t kVersion  = 2;
 static constexpr size_t  kFileSize = 128;
 
 bool ValidChannel(uint8_t ch)
@@ -36,7 +36,10 @@ void WriteConfig(uint8_t* out, const AppState& state)
         out[offset++] = state.cv_gate.cv_in[i].cc;
     }
     for(size_t i = 0; i < 2; i++)
+    {
         out[offset++] = static_cast<uint8_t>(state.cv_gate.gate_in[i].mode);
+        out[offset++] = state.cv_gate.gate_in[i].channel;
+    }
     for(size_t i = 0; i < 2; i++)
     {
         out[offset++] = static_cast<uint8_t>(state.cv_gate.gate_out[i].mode);
@@ -91,7 +94,7 @@ bool ReadConfig(const uint8_t* in, AppState& state)
         state.cv_gate.cv_in[i].mode    = static_cast<CvInMode>(in[offset++]);
         state.cv_gate.cv_in[i].channel = in[offset++];
         state.cv_gate.cv_in[i].cc      = in[offset++];
-        if(state.cv_gate.cv_in[i].mode > CvInMode::ChannelCc
+        if(state.cv_gate.cv_in[i].mode > CvInMode::NotePitch
            || !ValidChannel(state.cv_gate.cv_in[i].channel)
            || !ValidCc(state.cv_gate.cv_in[i].cc))
             return false;
@@ -99,7 +102,12 @@ bool ReadConfig(const uint8_t* in, AppState& state)
     for(size_t i = 0; i < 2; i++)
     {
         state.cv_gate.gate_in[i].mode = static_cast<GateInMode>(in[offset++]);
-        if(state.cv_gate.gate_in[i].mode > GateInMode::SyncIn)
+        if(in[4] >= 2)
+            state.cv_gate.gate_in[i].channel = in[offset++];
+        else
+            state.cv_gate.gate_in[i].channel = 0;
+        if(state.cv_gate.gate_in[i].mode > GateInMode::NoteTrigger
+           || !ValidChannel(state.cv_gate.gate_in[i].channel))
             return false;
     }
     for(size_t i = 0; i < 2; i++)

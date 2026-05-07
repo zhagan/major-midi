@@ -214,8 +214,8 @@ void UiRenderer::Render(const AppState& state,
                 {
                     case 0: std::snprintf(line, sizeof(line), "%cBPM Ovr %3d", item == state.menu_page_cursor ? '>' : ' ', static_cast<int>(state.song_bpm_override)); break;
                     case 1: std::snprintf(line, sizeof(line), "%cLoop %s", item == state.menu_page_cursor ? '>' : ' ', state.song_loop_enabled ? "On" : "Off"); break;
-                    case 2: std::snprintf(line, sizeof(line), "%cLoop St %03d", item == state.menu_page_cursor ? '>' : ' ', state.loop_start_measure); break;
-                    case 3: std::snprintf(line, sizeof(line), "%cLoop Ln %03d", item == state.menu_page_cursor ? '>' : ' ', state.loop_length_beats); break;
+                    case 2: std::snprintf(line, sizeof(line), "%cLoop St %lu", item == state.menu_page_cursor ? '>' : ' ', static_cast<unsigned long>(state.loop_start_tick)); break;
+                    case 3: std::snprintf(line, sizeof(line), "%cLoop Ln %lu", item == state.menu_page_cursor ? '>' : ' ', static_cast<unsigned long>(state.loop_length_ticks)); break;
                     case 4: std::snprintf(line, sizeof(line), "%cSave To MIDI", item == state.menu_page_cursor ? '>' : ' '); break;
                 }
             }
@@ -255,7 +255,9 @@ void UiRenderer::Render(const AppState& state,
                     case CvGateMenuItem::Cv1Channel: std::snprintf(line, sizeof(line), "%cCV1 Ch %02d", item == state.menu_page_cursor ? '>' : ' ', static_cast<int>(state.cv_gate.cv_in[0].channel) + 1); break;
                     case CvGateMenuItem::Cv1Cc: std::snprintf(line, sizeof(line), "%cCV1 CC %03d", item == state.menu_page_cursor ? '>' : ' ', static_cast<int>(state.cv_gate.cv_in[0].cc)); break;
                     case CvGateMenuItem::GateIn1Mode: std::snprintf(line, sizeof(line), "%cIn1 Mode %s", item == state.menu_page_cursor ? '>' : ' ', GateInModeName(state.cv_gate.gate_in[0].mode)); break;
+                    case CvGateMenuItem::GateIn1Channel: std::snprintf(line, sizeof(line), "%cIn1 Ch %02d", item == state.menu_page_cursor ? '>' : ' ', static_cast<int>(state.cv_gate.gate_in[0].channel) + 1); break;
                     case CvGateMenuItem::GateIn2Mode: std::snprintf(line, sizeof(line), "%cIn2 Mode %s", item == state.menu_page_cursor ? '>' : ' ', GateInModeName(state.cv_gate.gate_in[1].mode)); break;
+                    case CvGateMenuItem::GateIn2Channel: std::snprintf(line, sizeof(line), "%cIn2 Ch %02d", item == state.menu_page_cursor ? '>' : ' ', static_cast<int>(state.cv_gate.gate_in[1].channel) + 1); break;
                     case CvGateMenuItem::Gate1Mode: std::snprintf(line, sizeof(line), "%cOut1 Mode %s", item == state.menu_page_cursor ? '>' : ' ', GateOutModeName(state.cv_gate.gate_out[0].mode)); break;
                     case CvGateMenuItem::Gate1Channel: std::snprintf(line, sizeof(line), "%cOut1 Ch %02d", item == state.menu_page_cursor ? '>' : ' ', static_cast<int>(state.cv_gate.gate_out[0].channel) + 1); break;
                     case CvGateMenuItem::Gate1Resolution: std::snprintf(line, sizeof(line), "%cOut1 Res %s", item == state.menu_page_cursor ? '>' : ' ', SyncResolutionName(state.cv_gate.gate_out[0].sync_resolution)); break;
@@ -336,8 +338,9 @@ void UiRenderer::Render(const AppState& state,
     {
         std::snprintf(line,
                       sizeof(line),
-                      "LOOP %s",
-                      state.loop_editing ? "EDIT" : "SELECT");
+                      "LOOP %c P%lu",
+                      state.loop_editing ? 'E' : 'S',
+                      static_cast<unsigned long>(state.current_song_tick));
         display_.SetCursor(0, 0);
         display_.WriteString(line, Font_6x8, true);
 
@@ -351,25 +354,58 @@ void UiRenderer::Render(const AppState& state,
 
         std::snprintf(line,
                       sizeof(line),
-                      "%cStart M%03d",
-                      state.loop_edit_cursor == LoopEditItem::Start ? '>' : ' ',
+                      "%cSt M %03d",
+                      state.loop_edit_cursor == LoopEditItem::StartMeasure ? '>' : ' ',
                       state.loop_start_measure);
         display_.SetCursor(0, 26);
         display_.WriteString(line, Font_6x8, true);
 
         std::snprintf(line,
                       sizeof(line),
-                      "%cLength %03dB",
-                      state.loop_edit_cursor == LoopEditItem::Length ? '>' : ' ',
-                      state.loop_length_beats);
-        display_.SetCursor(0, 36);
+                      "%cSt B %02d",
+                      state.loop_edit_cursor == LoopEditItem::StartBeat ? '>' : ' ',
+                      state.loop_start_beat);
+        display_.SetCursor(0, 34);
         display_.WriteString(line, Font_6x8, true);
 
-        display_.SetCursor(0, 50);
-        display_.WriteString("Turn Sel  Press Edit", Font_6x8, true);
+        std::snprintf(line,
+                      sizeof(line),
+                      "%cSt T %lu",
+                      state.loop_edit_cursor == LoopEditItem::StartTick ? '>' : ' ',
+                      static_cast<unsigned long>(state.loop_start_tick));
+        display_.SetCursor(0, 42);
+        display_.WriteString(line, Font_6x8, true);
 
+        std::snprintf(line,
+                      sizeof(line),
+                      "%cLn M %03d",
+                      state.loop_edit_cursor == LoopEditItem::LengthMeasures ? '>' : ' ',
+                      state.loop_length_measures);
+        display_.SetCursor(0, 50);
+        display_.WriteString(line, Font_6x8, true);
+
+        std::snprintf(line,
+                      sizeof(line),
+                      "%cLn B %02d",
+                      state.loop_edit_cursor == LoopEditItem::LengthBeats ? '>' : ' ',
+                      state.loop_length_beats);
+        display_.SetCursor(64, 50);
+        display_.WriteString(line, Font_6x8, true);
+
+        std::snprintf(line,
+                      sizeof(line),
+                      "%cLn T %lu",
+                      state.loop_edit_cursor == LoopEditItem::LengthTick ? '>' : ' ',
+                      static_cast<unsigned long>(state.loop_length_ticks));
         display_.SetCursor(0, 58);
-        display_.WriteString("Hold Enc Exit", Font_6x8, true);
+        display_.WriteString(line, Font_6x8, true);
+
+        std::snprintf(line,
+                      sizeof(line),
+                      "E%lu",
+                      static_cast<unsigned long>(state.loop_end_tick));
+        display_.SetCursor(88, 58);
+        display_.WriteString(line, Font_6x8, true);
     }
     else if(state.ui_mode == UiMode::MidiMonitor)
     {
@@ -438,18 +474,16 @@ void UiRenderer::Render(const AppState& state,
 
         std::snprintf(line,
                       sizeof(line),
-                      "Loop %03d:%d %03dB",
-                      state.loop_start_measure,
-                      state.loop_start_beat,
-                      state.loop_length_beats);
+                      "Loop %lu %lu",
+                      static_cast<unsigned long>(state.loop_start_tick),
+                      static_cast<unsigned long>(state.loop_length_ticks));
         display_.SetCursor(0, 32);
         display_.WriteString(line, Font_6x8, true);
 
         std::snprintf(line,
                       sizeof(line),
-                      "End  %03d:%d V%02d",
-                      state.loop_end_measure,
-                      state.loop_end_beat,
+                      "Tick %lu V%02d",
+                      static_cast<unsigned long>(state.current_song_tick),
                       static_cast<int>(state.active_voices));
         display_.SetCursor(0, 42);
         display_.WriteString(line, Font_6x8, true);

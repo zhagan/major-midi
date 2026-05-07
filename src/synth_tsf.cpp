@@ -52,7 +52,7 @@ static SdramArena g_arena;
 static bool       g_arena_oom = false;
 
 // Put arena in SDRAM
-static uint8_t DSY_SDRAM_BSS sdram_arena_buf[56 * 1024 * 1024];
+static uint8_t DSY_SDRAM_BSS sdram_arena_buf[60 * 1024 * 1024];
 
 // -----------------------------
 // TinySoundFont config (allocator + no stdio)
@@ -158,7 +158,10 @@ namespace
 {
 constexpr int kFxLoadShedOnVoices  = 16;
 constexpr int kFxLoadShedOffVoices = 12;
+constexpr size_t kSf2ArenaReserveBytes = 4 * 1024 * 1024;
 }
+
+static SynthLoadResult g_last_load_result = SynthLoadResult::ParseFailed;
 
 bool SynthInit()
 {
@@ -168,14 +171,27 @@ bool SynthInit()
 
 bool SynthLoadSf2(const char* path, float sampleRate, int voices)
 {
+    g_last_load_result = SynthLoadResult::ParseFailed;
     g_sample_rate = sampleRate;
     g_arena.Reset();
     g_arena_oom = false;
     __builtin_memset(sdram_arena_buf, 0, sizeof(sdram_arena_buf));
 
     if(f_open(&g_sf2file, path, FA_READ) != FR_OK)
+    {
+        g_last_load_result = SynthLoadResult::FileOpenFailed;
         return false;
+    }
     g_sf2file_open = true;
+
+    const FSIZE_t file_size = f_size(&g_sf2file);
+    if(file_size >= static_cast<FSIZE_t>(sizeof(sdram_arena_buf) - kSf2ArenaReserveBytes))
+    {
+        f_close(&g_sf2file);
+        g_sf2file_open     = false;
+        g_last_load_result = SynthLoadResult::FileTooLarge;
+        return false;
+    }
 
     tsf_stream s{};
     s.data = &g_sf2file;
@@ -187,6 +203,8 @@ bool SynthLoadSf2(const char* path, float sampleRate, int voices)
     {
         f_close(&g_sf2file);
         g_sf2file_open = false;
+        g_last_load_result = g_arena_oom ? SynthLoadResult::FileTooLarge
+                                         : SynthLoadResult::ParseFailed;
         return false;
     }
 
@@ -217,7 +235,13 @@ bool SynthLoadSf2(const char* path, float sampleRate, int voices)
     // Initialize default preset for channels (0-15), with drums on channel 10.
     for(int ch = 0; ch < 16; ch++)
         tsf_channel_set_presetnumber(g_tsf, ch, 0, ch == 9 ? 1 : 0);
+    g_last_load_result = SynthLoadResult::Ok;
     return true;
+}
+
+SynthLoadResult SynthLastLoadResult()
+{
+    return g_last_load_result;
 }
 
 void SynthUnloadSf2()

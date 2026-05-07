@@ -6,9 +6,10 @@ namespace major_midi
 namespace
 {
 static constexpr uint8_t kMagic[4]   = {'M', 'M', 'C', 'V'};
-static constexpr uint8_t kVersion    = 2;
+static constexpr uint8_t kVersion    = 3;
 static constexpr size_t  kFileSizeV1 = 25;
-static constexpr size_t  kFileSize   = 27;
+static constexpr size_t  kFileSizeV2 = 27;
+static constexpr size_t  kFileSize   = 29;
 
 void WriteConfig(uint8_t* out, const CvGateConfig& config)
 {
@@ -27,7 +28,10 @@ void WriteConfig(uint8_t* out, const CvGateConfig& config)
     }
 
     for(size_t i = 0; i < 2; i++)
+    {
         out[offset++] = static_cast<uint8_t>(config.gate_in[i].mode);
+        out[offset++] = config.gate_in[i].channel;
+    }
 
     for(size_t i = 0; i < 2; i++)
     {
@@ -52,7 +56,8 @@ bool ReadConfig(const uint8_t* in, CvGateConfig& config)
         return false;
 
     size_t offset = 5;
-    const bool has_gate_in = in[4] >= 2;
+    const bool has_gate_in         = in[4] >= 2;
+    const bool has_gate_in_channel = in[4] >= 3;
 
     for(size_t i = 0; i < 2; i++)
     {
@@ -60,7 +65,7 @@ bool ReadConfig(const uint8_t* in, CvGateConfig& config)
         config.cv_in[i].channel = in[offset++];
         config.cv_in[i].cc      = in[offset++];
         if(static_cast<int>(config.cv_in[i].mode) < 0
-           || config.cv_in[i].mode > CvInMode::ChannelCc)
+           || config.cv_in[i].mode > CvInMode::NotePitch)
             return false;
         if(config.cv_in[i].channel > 15 || config.cv_in[i].cc > 127)
             return false;
@@ -71,14 +76,17 @@ bool ReadConfig(const uint8_t* in, CvGateConfig& config)
         for(size_t i = 0; i < 2; i++)
         {
             config.gate_in[i].mode = static_cast<GateInMode>(in[offset++]);
-            if(config.gate_in[i].mode > GateInMode::SyncIn)
+            config.gate_in[i].channel = has_gate_in_channel ? in[offset++] : 0;
+            if(config.gate_in[i].mode > GateInMode::NoteTrigger || config.gate_in[i].channel > 15)
                 return false;
         }
     }
     else
     {
         config.gate_in[0].mode = GateInMode::SyncIn;
+        config.gate_in[0].channel = 0;
         config.gate_in[1].mode = GateInMode::Off;
+        config.gate_in[1].channel = 0;
     }
 
     for(size_t i = 0; i < 2; i++)
@@ -123,7 +131,7 @@ bool LoadCvGateConfig(const char* path, CvGateConfig& config)
     const FRESULT read_result  = f_read(&file, data, kFileSize, &read);
     const FRESULT close_result = f_close(&file);
     if(read_result != FR_OK || close_result != FR_OK
-       || (read != kFileSize && read != kFileSizeV1))
+       || (read != kFileSize && read != kFileSizeV2 && read != kFileSizeV1))
         return false;
 
     return ReadConfig(data, config);

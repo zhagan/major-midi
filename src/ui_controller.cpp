@@ -8,7 +8,7 @@ namespace major_midi
 
 namespace
 {
-constexpr uint8_t  kLoopEditItemCount  = 3;
+constexpr uint8_t  kLoopEditItemCount  = 7;
 
 float MidiToNorm(uint8_t value)
 {
@@ -51,10 +51,94 @@ const char* LoopEditItemName(LoopEditItem item)
     switch(item)
     {
         case LoopEditItem::Active: return "Loop Active";
-        case LoopEditItem::Start: return "Loop Start";
-        case LoopEditItem::Length: return "Loop Length";
+        case LoopEditItem::StartMeasure: return "Loop Start Measure";
+        case LoopEditItem::StartBeat: return "Loop Start Beat";
+        case LoopEditItem::StartTick: return "Loop Start Tick";
+        case LoopEditItem::LengthMeasures: return "Loop Length Measures";
+        case LoopEditItem::LengthBeats: return "Loop Length Beats";
+        case LoopEditItem::LengthTick: return "Loop Length Tick";
     }
     return "Loop";
+}
+
+uint32_t LoopTicksPerBeat(const AppState& state)
+{
+    const int den = state.time_sig_den > 0 ? state.time_sig_den : 4;
+    return state.song_divisions > 0 ? ((static_cast<uint32_t>(state.song_divisions) * 4u)
+                                       / static_cast<uint32_t>(den))
+                                    : 0u;
+}
+
+uint32_t LoopTicksPerMeasure(const AppState& state)
+{
+    return LoopTicksPerBeat(state) * static_cast<uint32_t>(state.time_sig_num > 0 ? state.time_sig_num : 4);
+}
+
+void SyncLoopFieldsFromTicks(AppState& state)
+{
+    if(state.loop_length_ticks < 1)
+        state.loop_length_ticks = 1;
+
+    const uint32_t ticks_per_beat    = LoopTicksPerBeat(state);
+    const uint32_t ticks_per_measure = LoopTicksPerMeasure(state);
+
+    if(ticks_per_beat == 0 || ticks_per_measure == 0)
+    {
+        state.loop_start_measure   = 1;
+        state.loop_start_beat      = 1;
+        state.loop_length_measures = 0;
+        state.loop_length_beats    = 0;
+        state.loop_end_tick        = state.loop_start_tick + state.loop_length_ticks;
+        return;
+    }
+
+    state.loop_start_measure
+        = static_cast<int>(state.loop_start_tick / ticks_per_measure) + 1;
+    state.loop_start_beat
+        = static_cast<int>((state.loop_start_tick % ticks_per_measure) / ticks_per_beat) + 1;
+
+    const uint32_t total_beats = state.loop_length_ticks / ticks_per_beat;
+    const uint32_t beats_per_measure
+        = static_cast<uint32_t>(state.time_sig_num > 0 ? state.time_sig_num : 4);
+    state.loop_length_measures = static_cast<int>(total_beats / beats_per_measure);
+    state.loop_length_beats    = static_cast<int>(total_beats % beats_per_measure);
+    state.loop_end_tick        = state.loop_start_tick + state.loop_length_ticks;
+}
+
+void SyncLoopTicksFromCoarseStart(AppState& state)
+{
+    const uint32_t ticks_per_beat    = LoopTicksPerBeat(state);
+    const uint32_t ticks_per_measure = LoopTicksPerMeasure(state);
+    if(ticks_per_beat == 0 || ticks_per_measure == 0)
+        return;
+
+    const int beats_per_measure = state.time_sig_num > 0 ? state.time_sig_num : 4;
+    const int safe_measure      = state.loop_start_measure < 1 ? 1 : state.loop_start_measure;
+    const int safe_beat         = ClampInt(state.loop_start_beat, 1, beats_per_measure);
+    state.loop_start_measure    = safe_measure;
+    state.loop_start_beat       = safe_beat;
+    state.loop_start_tick       = static_cast<uint32_t>(safe_measure - 1) * ticks_per_measure
+                            + static_cast<uint32_t>(safe_beat - 1) * ticks_per_beat;
+    state.loop_end_tick         = state.loop_start_tick + state.loop_length_ticks;
+}
+
+void SyncLoopTicksFromCoarseLength(AppState& state)
+{
+    const uint32_t ticks_per_beat = LoopTicksPerBeat(state);
+    if(ticks_per_beat == 0)
+        return;
+
+    const int beats_per_measure = state.time_sig_num > 0 ? state.time_sig_num : 4;
+    state.loop_length_measures  = state.loop_length_measures < 0 ? 0 : state.loop_length_measures;
+    state.loop_length_beats     = ClampInt(state.loop_length_beats, 0, beats_per_measure - 1);
+
+    uint32_t total_beats = static_cast<uint32_t>(state.loop_length_measures)
+                           * static_cast<uint32_t>(beats_per_measure)
+                           + static_cast<uint32_t>(state.loop_length_beats);
+    if(total_beats == 0)
+        total_beats = 1;
+    state.loop_length_ticks = total_beats * ticks_per_beat;
+    state.loop_end_tick     = state.loop_start_tick + state.loop_length_ticks;
 }
 } // namespace
 
@@ -116,16 +200,7 @@ void UiController::HandlePerformanceBankButton(uint8_t bank, uint32_t now_ms)
 
 void UiController::NormalizeLoopState()
 {
-    if(state_->loop_start_measure < 1)
-        state_->loop_start_measure = 1;
-    if(state_->loop_length_beats < 1)
-        state_->loop_length_beats = 1;
-
-    if(state_->song_loop_enabled)
-        state_->loop_end_measure
-            = state_->loop_start_measure + ((state_->loop_length_beats + 3) / 4);
-    else
-        state_->loop_end_measure = state_->loop_start_measure;
+    SyncLoopFieldsFromTicks(*state_);
 }
 
 bool UiController::HandleEvent(const UiEvent& event,
@@ -484,13 +559,41 @@ void UiController::AdjustLoopEditValue(int32_t delta, uint32_t now_ms)
         case LoopEditItem::Active:
             state_->song_loop_enabled = delta > 0;
             break;
-        case LoopEditItem::Start:
+        case LoopEditItem::StartMeasure:
             state_->loop_start_measure
-                = ClampInt(state_->loop_start_measure + (delta > 0 ? 1 : -1), 1, 999);
+                = ClampInt(state_->loop_start_measure + (delta > 0 ? 1 : -1), 1, 9999);
+            SyncLoopTicksFromCoarseStart(*state_);
             break;
-        case LoopEditItem::Length:
+        case LoopEditItem::StartBeat:
+            state_->loop_start_beat
+                = ClampInt(state_->loop_start_beat + (delta > 0 ? 1 : -1),
+                           1,
+                           state_->time_sig_num > 0 ? state_->time_sig_num : 4);
+            SyncLoopTicksFromCoarseStart(*state_);
+            break;
+        case LoopEditItem::StartTick:
+            state_->loop_start_tick = static_cast<uint32_t>(
+                ClampInt(static_cast<int>(state_->loop_start_tick) + (delta > 0 ? 1 : -1),
+                         0,
+                         2000000000));
+            break;
+        case LoopEditItem::LengthMeasures:
+            state_->loop_length_measures
+                = ClampInt(state_->loop_length_measures + (delta > 0 ? 1 : -1), 0, 9999);
+            SyncLoopTicksFromCoarseLength(*state_);
+            break;
+        case LoopEditItem::LengthBeats:
             state_->loop_length_beats
-                = ClampInt(state_->loop_length_beats + (delta > 0 ? 1 : -1), 1, 128);
+                = ClampInt(state_->loop_length_beats + (delta > 0 ? 1 : -1),
+                           0,
+                           (state_->time_sig_num > 0 ? state_->time_sig_num : 4) - 1);
+            SyncLoopTicksFromCoarseLength(*state_);
+            break;
+        case LoopEditItem::LengthTick:
+            state_->loop_length_ticks = static_cast<uint32_t>(
+                ClampInt(static_cast<int>(state_->loop_length_ticks) + (delta > 0 ? 1 : -1),
+                         1,
+                         2000000000));
             break;
     }
 
@@ -684,13 +787,17 @@ void UiController::AdjustMenuValue(int32_t delta, uint32_t now_ms)
                     NormalizeLoopState();
                     break;
                 case 2:
-                    state_->loop_start_measure
-                        = ClampInt(state_->loop_start_measure + (delta > 0 ? 1 : -1), 1, 999);
+                    state_->loop_start_tick = static_cast<uint32_t>(
+                        ClampInt(static_cast<int>(state_->loop_start_tick) + (delta > 0 ? 1 : -1),
+                                 0,
+                                 2000000000));
                     NormalizeLoopState();
                     break;
                 case 3:
-                    state_->loop_length_beats
-                        = ClampInt(state_->loop_length_beats + (delta > 0 ? 1 : -1), 1, 128);
+                    state_->loop_length_ticks = static_cast<uint32_t>(
+                        ClampInt(static_cast<int>(state_->loop_length_ticks) + (delta > 0 ? 1 : -1),
+                                 1,
+                                 2000000000));
                     NormalizeLoopState();
                     break;
                 default: return;
@@ -822,7 +929,7 @@ void UiController::AdjustMenuValue(int32_t delta, uint32_t now_ms)
                     cv_gate.cv_in[0].mode = static_cast<CvInMode>(
                         ClampInt(static_cast<int>(cv_gate.cv_in[0].mode) + (delta > 0 ? 1 : -1),
                                  0,
-                                 static_cast<int>(CvInMode::ChannelCc)));
+                                 static_cast<int>(CvInMode::NotePitch)));
                     break;
                 case CvGateMenuItem::Cv1Channel:
                     cv_gate.cv_in[0].channel = static_cast<uint8_t>(
@@ -840,7 +947,7 @@ void UiController::AdjustMenuValue(int32_t delta, uint32_t now_ms)
                     cv_gate.cv_in[1].mode = static_cast<CvInMode>(
                         ClampInt(static_cast<int>(cv_gate.cv_in[1].mode) + (delta > 0 ? 1 : -1),
                                  0,
-                                 static_cast<int>(CvInMode::ChannelCc)));
+                                 static_cast<int>(CvInMode::NotePitch)));
                     break;
                 case CvGateMenuItem::Cv2Channel:
                     cv_gate.cv_in[1].channel = static_cast<uint8_t>(
@@ -858,13 +965,25 @@ void UiController::AdjustMenuValue(int32_t delta, uint32_t now_ms)
                     cv_gate.gate_in[0].mode = static_cast<GateInMode>(
                         ClampInt(static_cast<int>(cv_gate.gate_in[0].mode) + (delta > 0 ? 1 : -1),
                                  0,
-                                 static_cast<int>(GateInMode::SyncIn)));
+                                 static_cast<int>(GateInMode::NoteTrigger)));
+                    break;
+                case CvGateMenuItem::GateIn1Channel:
+                    cv_gate.gate_in[0].channel = static_cast<uint8_t>(
+                        ClampInt(static_cast<int>(cv_gate.gate_in[0].channel) + (delta > 0 ? 1 : -1),
+                                 0,
+                                 15));
                     break;
                 case CvGateMenuItem::GateIn2Mode:
                     cv_gate.gate_in[1].mode = static_cast<GateInMode>(
                         ClampInt(static_cast<int>(cv_gate.gate_in[1].mode) + (delta > 0 ? 1 : -1),
                                  0,
-                                 static_cast<int>(GateInMode::SyncIn)));
+                                 static_cast<int>(GateInMode::NoteTrigger)));
+                    break;
+                case CvGateMenuItem::GateIn2Channel:
+                    cv_gate.gate_in[1].channel = static_cast<uint8_t>(
+                        ClampInt(static_cast<int>(cv_gate.gate_in[1].channel) + (delta > 0 ? 1 : -1),
+                                 0,
+                                 15));
                     break;
                 case CvGateMenuItem::Gate1Mode:
                     cv_gate.gate_out[0].mode = static_cast<GateOutMode>(

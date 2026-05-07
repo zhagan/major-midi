@@ -2,11 +2,20 @@
 #include <cstdint>
 #include <cstddef>
 
+enum class SynthLoadResult : uint8_t
+{
+    Ok,
+    FileOpenFailed,
+    FileTooLarge,
+    ParseFailed,
+};
+
 // Initialize synth system (arena, etc.)
 bool SynthInit();
 
 // Load SoundFont from SD (example: "0:/soundfonts/microgm.sf2")
 bool SynthLoadSf2(const char* path, float sampleRate, int maxVoices);
+SynthLoadResult SynthLastLoadResult();
 // Unload current SoundFont (clears tsf + closes file)
 void SynthUnloadSf2();
 int  SynthActiveVoiceCount();

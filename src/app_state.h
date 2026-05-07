@@ -32,8 +32,12 @@ enum class KnobPage : uint8_t
 enum class LoopEditItem : uint8_t
 {
     Active,
-    Start,
-    Length,
+    StartMeasure,
+    StartBeat,
+    StartTick,
+    LengthMeasures,
+    LengthBeats,
+    LengthTick,
 };
 
 enum class MenuPage : uint8_t
@@ -74,7 +78,9 @@ enum class CvGateMenuItem : uint8_t
     Cv2Channel,
     Cv2Cc,
     GateIn1Mode,
+    GateIn1Channel,
     GateIn2Mode,
+    GateIn2Channel,
     Gate1Mode,
     Gate1Channel,
     Gate1Resolution,
@@ -98,6 +104,7 @@ enum class CvInMode : uint8_t
     Bpm,
     ChannelPitch,
     ChannelCc,
+    NotePitch,
 };
 
 enum class GateOutMode : uint8_t
@@ -112,6 +119,7 @@ enum class GateInMode : uint8_t
 {
     Off,
     SyncIn,
+    NoteTrigger,
 };
 
 enum class CvOutMode : uint8_t
@@ -164,7 +172,8 @@ struct GateOutputConfig
 
 struct GateInputConfig
 {
-    GateInMode mode = GateInMode::Off;
+    GateInMode mode    = GateInMode::Off;
+    uint8_t    channel = 0;
 };
 
 struct CvOutputConfig
@@ -249,10 +258,14 @@ struct AppState
     uint8_t      sf2_channel             = 0;
     int          loop_start_measure      = 1;
     int          loop_start_beat         = 1;
-    int          loop_start_sub          = 1;
+    uint32_t     loop_start_tick         = 0;
+    int          loop_length_measures    = 1;
+    int          loop_length_beats       = 0;
+    uint32_t     loop_length_ticks       = 1920;
+    uint32_t     current_song_tick       = 0;
+    uint32_t     loop_end_tick           = 1920;
     int          loop_end_measure        = 1;
     int          loop_end_beat           = 1;
-    int          loop_length_beats       = 16;
     uint16_t     song_bpm_override       = 0;
     bool         song_loop_enabled       = false;
     float        fx_reverb_time          = 0.85f;
@@ -281,6 +294,7 @@ struct AppState
     uint8_t      current_beat            = 1;
     uint8_t      time_sig_num            = 4;
     uint8_t      time_sig_den            = 4;
+    uint16_t     song_divisions          = 480;
     uint16_t     song_total_measures     = 1;
     uint8_t      active_voices           = 0;
     uint8_t      midi_monitor_scroll     = 0;
@@ -369,6 +383,7 @@ inline const char* CvInModeName(CvInMode mode)
         case CvInMode::Bpm: return "BPM";
         case CvInMode::ChannelPitch: return "Ch Pitch";
         case CvInMode::ChannelCc: return "Ch CC";
+        case CvInMode::NotePitch: return "NotePitch";
     }
     return "";
 }
@@ -391,6 +406,7 @@ inline const char* GateInModeName(GateInMode mode)
     {
         case GateInMode::Off: return "Off";
         case GateInMode::SyncIn: return "Sync";
+        case GateInMode::NoteTrigger: return "NoteTrig";
     }
     return "";
 }
@@ -431,7 +447,8 @@ inline const char* NotePriorityName(NotePriority priority)
 
 inline bool CvInModeNeedsChannel(CvInMode mode)
 {
-    return mode == CvInMode::ChannelPitch || mode == CvInMode::ChannelCc;
+    return mode == CvInMode::ChannelPitch || mode == CvInMode::ChannelCc
+           || mode == CvInMode::NotePitch;
 }
 
 inline bool CvInModeNeedsCc(CvInMode mode)
@@ -442,6 +459,11 @@ inline bool CvInModeNeedsCc(CvInMode mode)
 inline bool GateOutModeNeedsChannel(GateOutMode mode)
 {
     return mode == GateOutMode::ChannelGate;
+}
+
+inline bool GateInModeNeedsChannel(GateInMode mode)
+{
+    return mode == GateInMode::NoteTrigger;
 }
 
 inline bool GateOutModeNeedsResolution(GateOutMode mode)
@@ -476,7 +498,9 @@ inline size_t CvGateVisibleItemCount(const CvGateConfig& config)
     add(CvInModeNeedsChannel(config.cv_in[0].mode));
     add(CvInModeNeedsCc(config.cv_in[0].mode));
     add(); // In1 Mode
+    add(GateInModeNeedsChannel(config.gate_in[0].mode));
     add(); // In2 Mode
+    add(GateInModeNeedsChannel(config.gate_in[1].mode));
     add(); // Out1 Mode
     add(GateOutModeNeedsChannel(config.gate_out[0].mode));
     add(GateOutModeNeedsResolution(config.gate_out[0].mode));
@@ -510,8 +534,12 @@ inline CvGateMenuItem CvGateVisibleItemAt(const CvGateConfig& config, size_t vis
         return CvGateMenuItem::Cv1Cc;
     if(match(CvGateMenuItem::GateIn1Mode))
         return CvGateMenuItem::GateIn1Mode;
+    if(match(CvGateMenuItem::GateIn1Channel, GateInModeNeedsChannel(config.gate_in[0].mode)))
+        return CvGateMenuItem::GateIn1Channel;
     if(match(CvGateMenuItem::GateIn2Mode))
         return CvGateMenuItem::GateIn2Mode;
+    if(match(CvGateMenuItem::GateIn2Channel, GateInModeNeedsChannel(config.gate_in[1].mode)))
+        return CvGateMenuItem::GateIn2Channel;
     if(match(CvGateMenuItem::Gate1Mode))
         return CvGateMenuItem::Gate1Mode;
     if(match(CvGateMenuItem::Gate1Channel,
@@ -548,7 +576,7 @@ inline bool CvGateConfigEqual(const CvGateConfig& a, const CvGateConfig& b)
         if(a.cv_in[i].mode != b.cv_in[i].mode || a.cv_in[i].channel != b.cv_in[i].channel
            || a.cv_in[i].cc != b.cv_in[i].cc)
             return false;
-        if(a.gate_in[i].mode != b.gate_in[i].mode)
+        if(a.gate_in[i].mode != b.gate_in[i].mode || a.gate_in[i].channel != b.gate_in[i].channel)
             return false;
         if(a.gate_out[i].mode != b.gate_out[i].mode
            || a.gate_out[i].channel != b.gate_out[i].channel
