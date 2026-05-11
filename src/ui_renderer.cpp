@@ -46,8 +46,9 @@ size_t MenuPageItemCount(const AppState& state, const MediaLibrary& library)
     switch(state.menu_page)
     {
         case MenuPage::Main: return 7;
+        case MenuPage::General: return 2;
         case MenuPage::Fx: return 5;
-        case MenuPage::Song: return 5;
+        case MenuPage::Song: return 9;
         case MenuPage::Sf2: return 9;
         case MenuPage::Midi: return 12;
         case MenuPage::CvGate: return CvGateVisibleItemCount(state.cv_gate);
@@ -107,6 +108,65 @@ void UiRenderer::ShowSplash()
     display_.Update();
 }
 
+void UiRenderer::RenderBlank()
+{
+    display_.Fill(false);
+    display_.Update();
+}
+
+void UiRenderer::RenderScreenSaver(uint32_t now_ms)
+{
+    static constexpr int kTextWidth  = 56;
+    static constexpr int kTextHeight = 40;
+    static constexpr int kMaxX       = 128 - kTextWidth;
+    static constexpr int kMaxY       = 64 - kTextHeight;
+
+    if(saver_last_update_ms_ == 0)
+        saver_last_update_ms_ = now_ms;
+
+    uint32_t elapsed = now_ms - saver_last_update_ms_;
+    if(elapsed > 100)
+        elapsed = 100;
+
+    while(elapsed >= 64)
+    {
+        saver_x_ += saver_dx_;
+        saver_y_ += saver_dy_;
+
+        if(saver_x_ <= 0)
+        {
+            saver_x_  = 0;
+            saver_dx_ = 1;
+        }
+        else if(saver_x_ >= kMaxX)
+        {
+            saver_x_  = kMaxX;
+            saver_dx_ = -1;
+        }
+
+        if(saver_y_ <= 0)
+        {
+            saver_y_  = 0;
+            saver_dy_ = 1;
+        }
+        else if(saver_y_ >= kMaxY)
+        {
+            saver_y_  = kMaxY;
+            saver_dy_ = -1;
+        }
+
+        elapsed -= 64;
+        saver_last_update_ms_ += 64;
+    }
+
+    display_.Fill(false);
+    display_.SetCursor(saver_x_, saver_y_ + 18);
+    display_.WriteString("Major", Font_11x18, true);
+    display_.SetCursor(saver_x_ + 6, saver_y_ + 40);
+    display_.WriteString("MIDI", Font_11x18, true);
+    display_.Update();
+}
+
 void UiRenderer::Render(const AppState& state,
                         const MediaLibrary& library,
                         uint32_t now_ms)
@@ -157,10 +217,11 @@ void UiRenderer::Render(const AppState& state,
         const char* rows[] = {
             "Load MIDI",
             "Load SF2",
-            "FX Settings",
-            "Song Settings",
-            "SF2 Settings",
-            "MIDI Settings",
+            "General",
+            "FX",
+            "Song",
+            "SF2",
+            "MIDI",
             "CV/Gate",
             "Save All",
         };
@@ -169,7 +230,7 @@ void UiRenderer::Render(const AppState& state,
         {
             const size_t idx = state.menu_root_cursor >= 4 ? state.menu_root_cursor - 3 + row
                                                            : static_cast<size_t>(row);
-            if(idx >= 8)
+            if(idx >= 9)
                 break;
             std::snprintf(line,
                           sizeof(line),
@@ -197,7 +258,24 @@ void UiRenderer::Render(const AppState& state,
             if(item >= MenuPageItemCount(state, library))
                 break;
 
-            if(state.menu_page == MenuPage::Fx)
+            if(state.menu_page == MenuPage::General)
+            {
+                switch(item)
+                {
+                    case 0:
+                        if(state.screen_saver_timeout_s == 0)
+                            std::snprintf(line, sizeof(line), "%cSaver Off", item == state.menu_page_cursor ? '>' : ' ');
+                        else if(state.screen_saver_timeout_s >= 3600)
+                            std::snprintf(line, sizeof(line), "%cSaver %2uh", item == state.menu_page_cursor ? '>' : ' ', static_cast<unsigned>(state.screen_saver_timeout_s / 3600));
+                        else if(state.screen_saver_timeout_s >= 60)
+                            std::snprintf(line, sizeof(line), "%cSaver %2um", item == state.menu_page_cursor ? '>' : ' ', static_cast<unsigned>(state.screen_saver_timeout_s / 60));
+                        else
+                            std::snprintf(line, sizeof(line), "%cSaver %3us", item == state.menu_page_cursor ? '>' : ' ', static_cast<unsigned>(state.screen_saver_timeout_s));
+                        break;
+                    case 1: std::snprintf(line, sizeof(line), "%cKnobs %s", item == state.menu_page_cursor ? '>' : ' ', KnobPickupModeName(state.knob_pickup_mode)); break;
+                }
+            }
+            else if(state.menu_page == MenuPage::Fx)
             {
                 switch(item)
                 {
@@ -214,9 +292,13 @@ void UiRenderer::Render(const AppState& state,
                 {
                     case 0: std::snprintf(line, sizeof(line), "%cBPM Ovr %3d", item == state.menu_page_cursor ? '>' : ' ', static_cast<int>(state.song_bpm_override)); break;
                     case 1: std::snprintf(line, sizeof(line), "%cLoop %s", item == state.menu_page_cursor ? '>' : ' ', state.song_loop_enabled ? "On" : "Off"); break;
-                    case 2: std::snprintf(line, sizeof(line), "%cLoop St %lu", item == state.menu_page_cursor ? '>' : ' ', static_cast<unsigned long>(state.loop_start_tick)); break;
-                    case 3: std::snprintf(line, sizeof(line), "%cLoop Ln %lu", item == state.menu_page_cursor ? '>' : ' ', static_cast<unsigned long>(state.loop_length_ticks)); break;
-                    case 4: std::snprintf(line, sizeof(line), "%cSave To MIDI", item == state.menu_page_cursor ? '>' : ' '); break;
+                    case 2: std::snprintf(line, sizeof(line), "%cSt M %03d", item == state.menu_page_cursor ? '>' : ' ', state.loop_start_measure); break;
+                    case 3: std::snprintf(line, sizeof(line), "%cSt B %02d", item == state.menu_page_cursor ? '>' : ' ', state.loop_start_beat); break;
+                    case 4: std::snprintf(line, sizeof(line), "%cSt T %lu", item == state.menu_page_cursor ? '>' : ' ', static_cast<unsigned long>(state.loop_start_tick)); break;
+                    case 5: std::snprintf(line, sizeof(line), "%cLn M %03d", item == state.menu_page_cursor ? '>' : ' ', state.loop_length_measures); break;
+                    case 6: std::snprintf(line, sizeof(line), "%cLn B %02d", item == state.menu_page_cursor ? '>' : ' ', state.loop_length_beats); break;
+                    case 7: std::snprintf(line, sizeof(line), "%cLn T %lu", item == state.menu_page_cursor ? '>' : ' ', static_cast<unsigned long>(state.loop_length_ticks)); break;
+                    case 8: std::snprintf(line, sizeof(line), "%cSave To MIDI", item == state.menu_page_cursor ? '>' : ' '); break;
                 }
             }
             else if(state.menu_page == MenuPage::Sf2)
@@ -537,11 +619,12 @@ void UiRenderer::Render(const AppState& state,
 
             std::snprintf(line,
                           sizeof(line),
-                          "B%d CH%02d BPM%03d M%03d",
+                          "B%d CH%02d BPM%03d %03d:%02d",
                           static_cast<int>(state.bank) + 1,
                           selected_channel_index + 1,
                           state.bpm,
-                          static_cast<int>(state.current_measure));
+                          static_cast<int>(state.current_measure),
+                          static_cast<int>(state.current_beat));
             display_.SetCursor(0, 8);
             display_.WriteString(line, Font_6x8, true);
 
@@ -616,10 +699,11 @@ void UiRenderer::Render(const AppState& state,
 
             std::snprintf(line,
                           sizeof(line),
-                          "B%d BPM%03d M%03d %02d-%02d",
+                          "B%d BPM%03d %03d:%02d %02d-%02d",
                           static_cast<int>(state.bank) + 1,
                           state.bpm,
                           static_cast<int>(state.current_measure),
+                          static_cast<int>(state.current_beat),
                           ch0 + 1,
                           ch3 + 1);
             display_.SetCursor(0, 8);

@@ -2,6 +2,7 @@
 #include <cstring>
 
 #include "app_state.h"
+#include "boot_state_persist.h"
 #include "clock_sync.h"
 #include "cv_gate_engine.h"
 #include "cv_gate_persist.h"
@@ -30,7 +31,7 @@ using namespace daisy;
 using namespace patch_sm;
 using namespace major_midi;
 
-static constexpr bool kEnableUsbLog = true;
+static constexpr bool kEnableUsbLog = false;
 
 #define LOG(...)                                  \
     do                                            \
@@ -761,7 +762,7 @@ void ApplyAppSettings()
     settings.loop_start_measure = 1;
     settings.loop_start_beat    = 1;
     settings.loop_start_sub     = 1;
-    settings.loop_length_beats  = 16;
+    settings.loop_length_beats  = 0;
 
     if(app_state.song_bpm_override > 0)
         app_state.bpm = app_state.song_bpm_override;
@@ -915,6 +916,7 @@ bool LoadSelectedMedia(bool reload_midi, bool reload_sf2, uint32_t now_ms)
     char midi_path[MediaLibrary::kNameMax * 2]{};
     char sf2_path[MediaLibrary::kNameMax * 2]{};
     char song_cfg_path[MediaLibrary::kNameMax * 2 + 8]{};
+    char cfg_sf2_name[MediaLibrary::kNameMax]{};
 
     if(reload_midi)
     {
@@ -924,6 +926,28 @@ bool LoadSelectedMedia(bool reload_midi, bool reload_sf2, uint32_t now_ms)
     if(reload_sf2)
         media_library.BuildSoundFontPath(
             app_state.selected_sf2_index, sf2_path, sizeof(sf2_path));
+
+    if(reload_midi && song_cfg_path[0] != '\0')
+    {
+        AppState cfg_state = app_state;
+        if(LoadSongConfig(song_cfg_path, cfg_state, cfg_sf2_name, sizeof(cfg_sf2_name)))
+        {
+            const size_t sf2_count = media_library.SoundFontCount();
+            if(sf2_count > 0)
+            {
+                size_t desired_index = media_library.FindSoundFontByName(cfg_sf2_name);
+                if(desired_index >= sf2_count)
+                    desired_index = 0;
+                if(desired_index != app_state.selected_sf2_index)
+                {
+                    app_state.selected_sf2_index = desired_index;
+                    reload_sf2                   = true;
+                    media_library.BuildSoundFontPath(
+                        app_state.selected_sf2_index, sf2_path, sizeof(sf2_path));
+                }
+            }
+        }
+    }
 
     const bool was_playing = app_state.transport_playing;
     app_state.transport_playing = false;
@@ -966,11 +990,13 @@ bool LoadSelectedMedia(bool reload_midi, bool reload_sf2, uint32_t now_ms)
         midi_ok = midi_path[0] != '\0' && smf_player.Open(midi_path);
         if(midi_ok)
         {
+            SaveBootState(app_state, media_library.MidiName(app_state.selected_midi_index));
             app_state.bpm = TempoUsecToBpm(smf_player.TempoUsecPerQuarter());
             transport.SetFileBpm(static_cast<float>(app_state.bpm));
             SyncSongStateFromPlayer();
             if(song_cfg_path[0] != '\0')
-                LoadSongConfig(song_cfg_path, app_state);
+                LoadSongConfig(song_cfg_path, app_state, cfg_sf2_name, sizeof(cfg_sf2_name));
+            SyncLoopDisplayFieldsFromTicks(app_state, smf_player);
             app_state.settings_dirty = true;
             ApplyAppSettings();
         }
@@ -1000,6 +1026,7 @@ bool SaveAllSettings(uint32_t now_ms)
     char midi_path[MediaLibrary::kNameMax * 2]{};
     char sf2_path[MediaLibrary::kNameMax * 2]{};
     char song_cfg_path[MediaLibrary::kNameMax * 2 + 8]{};
+    const char* current_sf2_name = media_library.SoundFontName(app_state.selected_sf2_index);
     const auto midi_settings = smf_player.Settings();
     const bool had_audio     = audio_started;
     PersistWriteStage song_stage  = PersistWriteStage::None;
@@ -1034,10 +1061,12 @@ bool SaveAllSettings(uint32_t now_ms)
     const bool song_ok = song_cfg_path[0] != '\0'
                              && SaveSongConfig(song_cfg_path,
                                                app_state,
+                                               current_sf2_name,
                                                &song_stage,
                                                &song_result_code,
                                                SaveProgressOverlay,
                                                &song_progress);
+    SaveBootState(app_state, media_library.MidiName(app_state.selected_midi_index));
     if(!song_ok)
     {
         char text[32];
@@ -1065,6 +1094,7 @@ bool SaveAllSettings(uint32_t now_ms)
     if(song_ok && song_cfg_path[0] != '\0')
     {
         LoadSongConfig(song_cfg_path, app_state);
+        SyncLoopDisplayFieldsFromTicks(app_state, smf_player);
         app_state.settings_dirty = true;
         ApplyAppSettings();
     }
@@ -1123,7 +1153,14 @@ int main(void)
     gate_clock_sync.SetUseExternalClock(true);
 
     if(media_library.MidiCount() > 0)
-        app_state.selected_midi_index = 0;
+    {
+        char boot_midi_name[MediaLibrary::kNameMax]{};
+        size_t boot_midi_index = media_library.MidiCount();
+        if(LoadBootState(app_state, boot_midi_name, sizeof(boot_midi_name)))
+            boot_midi_index = media_library.FindMidiByName(boot_midi_name);
+        app_state.selected_midi_index
+            = boot_midi_index < media_library.MidiCount() ? boot_midi_index : 0;
+    }
     if(media_library.SoundFontCount() > 0)
         app_state.selected_sf2_index = 0;
 
@@ -1164,9 +1201,6 @@ int main(void)
     bool     ui_dirty            = true;
     bool     last_transport_playing = false;
     uint64_t next_midi_clock_sample = 0;
-    uint32_t last_transport_debug_ms = render_ms;
-    uint64_t last_logged_song_tick   = 0;
-    uint32_t loop_wrap_count         = 0;
     while(1)
     {
         const uint32_t now = System::GetNow();
@@ -1271,21 +1305,6 @@ int main(void)
         if(audio_started)
             transport.Update(effective_state);
 
-        CvGateEngine::LoopSyncDebugEvent loop_sync_debug{};
-        while(cv_gate_engine.ConsumeLoopSyncDebugEvent(loop_sync_debug))
-        {
-            LOG("LoopSync G%lu loop=%lu expected=%lu seen=%lu tail=%lu head=%lu forced=%lu blk=%lu->%lu",
-                static_cast<unsigned long>(loop_sync_debug.gate_index + 1u),
-                static_cast<unsigned long>(loop_sync_debug.loop_index),
-                static_cast<unsigned long>(loop_sync_debug.expected),
-                static_cast<unsigned long>(loop_sync_debug.seen),
-                static_cast<unsigned long>(loop_sync_debug.wrap_tail),
-                static_cast<unsigned long>(loop_sync_debug.wrap_head),
-                static_cast<unsigned long>(loop_sync_debug.forced ? 1u : 0u),
-                static_cast<unsigned long>(loop_sync_debug.block_start_tick),
-                static_cast<unsigned long>(loop_sync_debug.block_end_tick));
-        }
-
         if(audio_started && effective_state.transport_playing && !transport.IsPlaying())
         {
             app_state.transport_playing      = false;
@@ -1336,40 +1355,6 @@ int main(void)
             = effective_state.transport_playing ? static_cast<uint32_t>(transport.CurrentSongTick())
                                                 : 0u;
 
-        if(effective_state.transport_playing)
-        {
-            const uint64_t current_song_tick = transport.CurrentSongTick();
-            if(last_transport_playing && current_song_tick < last_logged_song_tick)
-            {
-                loop_wrap_count++;
-                LOG("LoopWrap count=%lu tick=%lu->%lu start=%lu len=%lu",
-                    static_cast<unsigned long>(loop_wrap_count),
-                    static_cast<unsigned long>(last_logged_song_tick),
-                    static_cast<unsigned long>(current_song_tick),
-                    static_cast<unsigned long>(effective_state.loop_start_tick),
-                    static_cast<unsigned long>(effective_state.loop_length_ticks));
-            }
-
-            if((now - last_transport_debug_ms) >= 500)
-            {
-                last_transport_debug_ms = now;
-                LOG("LoopStat play=%lu tick=%lu meas=%lu beat=%lu start=%lu len=%lu div=%lu mode=%lu",
-                    static_cast<unsigned long>(effective_state.transport_playing ? 1u : 0u),
-                    static_cast<unsigned long>(current_song_tick),
-                    static_cast<unsigned long>(TickToMeasure(current_song_tick, smf_player)),
-                    static_cast<unsigned long>(TickToBeat(current_song_tick, smf_player)),
-                    static_cast<unsigned long>(effective_state.loop_start_tick),
-                    static_cast<unsigned long>(effective_state.loop_length_ticks),
-                    static_cast<unsigned long>(smf_player.Divisions()),
-                    static_cast<unsigned long>(app_state.cv_gate.gate_out[0].mode));
-            }
-            last_logged_song_tick = current_song_tick;
-        }
-        else
-        {
-            last_logged_song_tick = 0;
-        }
-
         effective_state.current_measure
             = effective_state.transport_playing
                   ? TickToMeasure(transport.CurrentSongTick(), smf_player)
@@ -1416,6 +1401,11 @@ int main(void)
         const bool overlay_active = app_state.overlay.until_ms > now;
         const bool ui_active = overlay_active || (now - last_ui_activity_ms) < kUiActiveHoldMs
                                || app_state.ui_mode != UiMode::Performance;
+        const bool screen_saver_active
+            = app_state.ui_mode == UiMode::Performance && !overlay_active
+              && app_state.screen_saver_timeout_s > 0
+              && (now - last_ui_activity_ms)
+                     >= (static_cast<uint32_t>(app_state.screen_saver_timeout_s) * 1000u);
         const uint32_t render_interval_ms = app_state.transport_playing
                                                 ? (ui_active ? kRenderIntervalUiActiveMs
                                                              : kRenderIntervalPlayingMs)
@@ -1424,7 +1414,10 @@ int main(void)
         if(ui_dirty || (now - render_ms >= render_interval_ms))
         {
             render_ms = now;
-            ui_renderer.Render(effective_state, media_library, now);
+            if(screen_saver_active)
+                ui_renderer.RenderScreenSaver(now);
+            else
+                ui_renderer.Render(effective_state, media_library, now);
             ui_dirty = false;
         }
 

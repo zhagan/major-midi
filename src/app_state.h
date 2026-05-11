@@ -43,6 +43,7 @@ enum class LoopEditItem : uint8_t
 enum class MenuPage : uint8_t
 {
     Main,
+    General,
     Fx,
     Song,
     Sf2,
@@ -51,6 +52,12 @@ enum class MenuPage : uint8_t
     LoadMidi,
     LoadSf2,
     SaveAllConfirm,
+};
+
+enum class KnobPickupMode : uint8_t
+{
+    Pickup,
+    Jump,
 };
 
 enum class MidiSettingsMenuItem : uint8_t
@@ -268,6 +275,8 @@ struct AppState
     int          loop_end_beat           = 1;
     uint16_t     song_bpm_override       = 0;
     bool         song_loop_enabled       = false;
+    uint16_t     screen_saver_timeout_s  = 3600;
+    KnobPickupMode knob_pickup_mode      = KnobPickupMode::Pickup;
     float        fx_reverb_time          = 0.85f;
     float        fx_reverb_lpf_hz        = 8000.0f;
     float        fx_reverb_hpf_hz        = 80.0f;
@@ -362,6 +371,7 @@ inline const char* MenuPageName(MenuPage page)
     switch(page)
     {
         case MenuPage::Main: return "Menu";
+        case MenuPage::General: return "General";
         case MenuPage::Fx: return "FX";
         case MenuPage::Song: return "Song";
         case MenuPage::Sf2: return "SF2";
@@ -370,6 +380,16 @@ inline const char* MenuPageName(MenuPage page)
         case MenuPage::LoadMidi: return "Load MIDI";
         case MenuPage::LoadSf2: return "Load SF2";
         case MenuPage::SaveAllConfirm: return "Save All";
+    }
+    return "";
+}
+
+inline const char* KnobPickupModeName(KnobPickupMode mode)
+{
+    switch(mode)
+    {
+        case KnobPickupMode::Pickup: return "Pickup";
+        case KnobPickupMode::Jump: return "Instant";
     }
     return "";
 }

@@ -12,7 +12,6 @@ namespace major_midi
 
 namespace
 {
-constexpr bool  kEnableLoopSyncDebug = true;
 constexpr float kCvInMinBpm   = 20.0f;
 constexpr float kCvInMaxBpm   = 300.0f;
 constexpr float kCvOutMaxVolt = 5.0f;
@@ -135,26 +134,14 @@ void CvGateEngine::Init(DaisyPatchSM& hw, float sample_rate)
 {
     hw_          = &hw;
     sample_rate_ = sample_rate;
-    debug_event_pending_ = false;
-    debug_event_         = {};
+    was_playing_ = false;
     for(size_t i = 0; i < 2; i++)
     {
         active_gate_note_[i]    = 0;
         active_gate_channel_[i] = 0;
         gate_note_active_[i]    = false;
         gate_out_pulse_remaining_[i] = 0;
-        sync_loop_pulse_count_[i]    = 0;
-        sync_loop_index_[i]          = 0;
     }
-}
-
-bool CvGateEngine::ConsumeLoopSyncDebugEvent(LoopSyncDebugEvent& out)
-{
-    if(!debug_event_pending_)
-        return false;
-    out = debug_event_;
-    debug_event_pending_ = false;
-    return true;
 }
 
 float CvGateEngine::ReadCvInput(size_t index) const
@@ -360,6 +347,7 @@ void CvGateEngine::Update(const AppState& state, MixerTransport& transport)
     const uint64_t ticks_per_measure = ticks_per_beat * uint64_t(ts_num > 0 ? ts_num : 4);
     const uint64_t gate_pulse_samples
         = static_cast<uint64_t>((sample_rate_ * kGatePulseMs) / 1000.0f);
+    const bool started_playing = playing && !was_playing_;
 
     for(size_t i = 0; i < 2; i++)
     {
@@ -385,68 +373,34 @@ void CvGateEngine::Update(const AppState& state, MixerTransport& transport)
                                         state.cv_gate.gate_out[i].sync_resolution))
                               : 0u;
                     uint32_t pulse_count = 0;
-                    uint32_t tail_count  = 0;
-                    uint32_t head_count  = 0;
-                    bool     forced_seam_pulse = false;
                     if(!wrapped_block)
                     {
                         pulse_count
                             = CountTickBoundariesInRange(block_start_tick,
                                                          block_end_tick,
                                                          ticks_per_pulse);
+                        if(started_playing && pulse_count == 0 && ticks_per_pulse > 0
+                           && (uint64_t(state.loop_start_tick) % ticks_per_pulse) == 0)
+                            pulse_count = 1;
                     }
                     else
                     {
                         const uint64_t loop_end_tick
                             = uint64_t(state.loop_start_tick) + uint64_t(state.loop_length_ticks);
-                        tail_count = CountTickBoundariesInRange(block_start_tick,
-                                                                loop_end_tick,
-                                                                ticks_per_pulse);
-                        head_count = CountTickBoundariesInRange(uint64_t(state.loop_start_tick),
-                                                                block_end_tick,
-                                                                ticks_per_pulse);
-                        pulse_count = tail_count + head_count;
+                        pulse_count = CountTickBoundariesInRange(block_start_tick,
+                                                                 loop_end_tick,
+                                                                 ticks_per_pulse)
+                                      + CountTickBoundariesInRange(uint64_t(state.loop_start_tick),
+                                                                   block_end_tick,
+                                                                   ticks_per_pulse);
                         if(pulse_count == 0 && ticks_per_pulse > 0
                            && (uint64_t(state.loop_start_tick) % ticks_per_pulse) == 0)
-                        {
-                            pulse_count       = 1;
-                            forced_seam_pulse = true;
-                        }
-
-                        if(kEnableLoopSyncDebug && i == 0)
-                        {
-                            const uint64_t loop_end_exclusive
-                                = uint64_t(state.loop_start_tick) + uint64_t(state.loop_length_ticks);
-                            const uint32_t expected_per_loop
-                                = CountTickBoundariesInRange(uint64_t(state.loop_start_tick),
-                                                             loop_end_exclusive > 0
-                                                                 ? (loop_end_exclusive - 1u)
-                                                                 : 0u,
-                                                             ticks_per_pulse);
-                            debug_event_.available        = true;
-                            debug_event_.gate_index       = static_cast<uint32_t>(i);
-                            debug_event_.loop_index       = sync_loop_index_[i];
-                            debug_event_.expected         = expected_per_loop;
-                            debug_event_.seen             = sync_loop_pulse_count_[i];
-                            debug_event_.wrap_tail        = tail_count;
-                            debug_event_.wrap_head        = head_count;
-                            debug_event_.forced           = forced_seam_pulse;
-                            debug_event_.block_start_tick = block_start_tick;
-                            debug_event_.block_end_tick   = block_end_tick;
-                            debug_event_pending_          = true;
-                        }
-                        sync_loop_index_[i]++;
-                        sync_loop_pulse_count_[i] = 0;
+                            pulse_count = 1;
                     }
 
-                    sync_loop_pulse_count_[i] += pulse_count;
                     if(pulse_count > 0)
                         gate_out_pulse_remaining_[i] = gate_pulse_samples;
                     gate_high = gate_out_pulse_remaining_[i] > 0;
-                }
-                else
-                {
-                    sync_loop_pulse_count_[i] = 0;
                 }
                 break;
             case GateOutMode::ResetPulse:
@@ -456,6 +410,11 @@ void CvGateEngine::Update(const AppState& state, MixerTransport& transport)
                     if(!wrapped_block)
                     {
                         pulse = TickBoundaryInRange(block_start_tick, block_end_tick, ticks_per_measure);
+                        if(started_playing && !pulse && ticks_per_measure > 0
+                           && (uint64_t(state.loop_start_tick) % ticks_per_measure) == 0)
+                        {
+                            pulse = true;
+                        }
                     }
                     else
                     {
@@ -500,6 +459,8 @@ void CvGateEngine::Update(const AppState& state, MixerTransport& transport)
 
         hw_->WriteCvOut(i == 0 ? CV_OUT_1 : CV_OUT_2, voltage);
     }
+
+    was_playing_ = playing;
 }
 
 } // namespace major_midi

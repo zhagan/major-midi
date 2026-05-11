@@ -9,6 +9,7 @@ APP_TYPE = BOOT_QSPI
 USE_FATFS = 1
 USE_DAISYSP_LGPL = 1
 
+
 CPP_SOURCES = \
   src/main.cpp \
   src/sd_mount.cpp \
@@ -17,6 +18,7 @@ CPP_SOURCES = \
   src/major_midi_settings.cpp \
   src/media_library.cpp \
   src/clock_sync.cpp \
+  src/boot_state_persist.cpp \
   src/persist_file.cpp \
   src/cv_gate_persist.cpp \
   src/midi_routing_persist.cpp \

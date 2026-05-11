@@ -85,6 +85,32 @@ const char* MediaLibrary::SoundFontName(size_t index) const
     return index < sf2_count_ ? sf2_files_[index] : "";
 }
 
+size_t MediaLibrary::FindMidiByName(const char* name) const
+{
+    if(name == nullptr || name[0] == '\0')
+        return midi_count_;
+
+    for(size_t i = 0; i < midi_count_; i++)
+    {
+        if(std::strncmp(midi_files_[i], name, kNameMax) == 0)
+            return i;
+    }
+    return midi_count_;
+}
+
+size_t MediaLibrary::FindSoundFontByName(const char* name) const
+{
+    if(name == nullptr || name[0] == '\0')
+        return sf2_count_;
+
+    for(size_t i = 0; i < sf2_count_; i++)
+    {
+        if(std::strncmp(sf2_files_[i], name, kNameMax) == 0)
+            return i;
+    }
+    return sf2_count_;
+}
+
 void MediaLibrary::BuildMidiPath(size_t index, char* out, size_t out_sz) const
 {
     if(out_sz == 0)

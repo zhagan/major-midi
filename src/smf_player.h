@@ -11,6 +11,16 @@ extern "C"
 class SmfPlayer
 {
   public:
+    struct LoopCacheEvent
+    {
+        uint32_t rel_tick   = 0;
+        uint32_t rel_sample = 0;
+        EvType   type       = EvType::NoteOn;
+        uint8_t  ch         = 0;
+        uint8_t  a          = 0;
+        uint8_t  b          = 0;
+    };
+
     bool Open(const char* path);
     void Close();
 
@@ -41,6 +51,14 @@ class SmfPlayer
     const major_midi::MajorMidiSettings& Settings() const { return settings_; }
     major_midi::MajorMidiSettings& MutableSettings() { return settings_; }
     bool SaveSettings();
+    bool BuildLoopCache(uint32_t       start_tick,
+                        uint32_t       length_ticks,
+                        LoopCacheEvent* snapshot_events,
+                        size_t         max_snapshot_events,
+                        size_t&        snapshot_event_count,
+                        LoopCacheEvent* loop_events,
+                        size_t         max_loop_events,
+                        size_t&        loop_event_count);
 
     // Parses ahead and pushes timestamped events
     void Pump(EventQueue<1024>& queue, uint64_t sampleNow);
@@ -79,7 +97,7 @@ class SmfPlayer
     bool     open_            = false;
     bool     playing_         = false;
     uint16_t trackCount_      = 0;
-    static constexpr uint16_t kMaxTracks = 16;
+    static constexpr uint16_t kMaxTracks = 32;
     static constexpr uint16_t kTrackNameMax = 24;
     TrackState tracks_[kMaxTracks]{};
     char     trackNames_[kMaxTracks][kTrackNameMax]{};

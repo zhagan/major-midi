@@ -26,7 +26,7 @@ int ClampInt(int value, int min_value, int max_value)
 
 size_t MainMenuItemCount()
 {
-    return 8;
+    return 9;
 }
 
 size_t MenuPageItemCount(const AppState& state, const MediaLibrary& library)
@@ -34,8 +34,9 @@ size_t MenuPageItemCount(const AppState& state, const MediaLibrary& library)
     switch(state.menu_page)
     {
         case MenuPage::Main: return MainMenuItemCount();
+        case MenuPage::General: return 2;
         case MenuPage::Fx: return 5;
-        case MenuPage::Song: return 5;
+        case MenuPage::Song: return 9;
         case MenuPage::Sf2: return 9;
         case MenuPage::Midi: return 12;
         case MenuPage::CvGate: return CvGateVisibleItemCount(state.cv_gate);
@@ -627,12 +628,13 @@ void UiController::ActivateMenuRoot(const MediaLibrary&, uint32_t now_ms)
     {
         case 0: EnterMenuPage(MenuPage::LoadMidi, now_ms); break;
         case 1: EnterMenuPage(MenuPage::LoadSf2, now_ms); break;
-        case 2: EnterMenuPage(MenuPage::Fx, now_ms); break;
-        case 3: EnterMenuPage(MenuPage::Song, now_ms); break;
-        case 4: EnterMenuPage(MenuPage::Sf2, now_ms); break;
-        case 5: EnterMenuPage(MenuPage::Midi, now_ms); break;
-        case 6: EnterMenuPage(MenuPage::CvGate, now_ms); break;
-        case 7: EnterMenuPage(MenuPage::SaveAllConfirm, now_ms); break;
+        case 2: EnterMenuPage(MenuPage::General, now_ms); break;
+        case 3: EnterMenuPage(MenuPage::Fx, now_ms); break;
+        case 4: EnterMenuPage(MenuPage::Song, now_ms); break;
+        case 5: EnterMenuPage(MenuPage::Sf2, now_ms); break;
+        case 6: EnterMenuPage(MenuPage::Midi, now_ms); break;
+        case 7: EnterMenuPage(MenuPage::CvGate, now_ms); break;
+        case 8: EnterMenuPage(MenuPage::SaveAllConfirm, now_ms); break;
         default: break;
     }
 }
@@ -648,13 +650,18 @@ void UiController::ActivateMenuPage(const MediaLibrary& library, uint32_t now_ms
 
     switch(state_->menu_page)
     {
+        case MenuPage::General:
+            state_->menu_editing = true;
+            SetOverlay(*state_, "Edit General", now_ms, 300);
+            break;
+
         case MenuPage::Fx:
             state_->menu_editing = true;
             SetOverlay(*state_, "Edit FX", now_ms, 300);
             break;
 
         case MenuPage::Song:
-            if(state_->menu_page_cursor == 4)
+            if(state_->menu_page_cursor == 8)
             {
                 state_->pending_save_settings = true;
                 SetOverlay(*state_, "Save MIDI", now_ms);
@@ -728,6 +735,33 @@ void UiController::AdjustMenuValue(int32_t delta, uint32_t now_ms)
 
     switch(state_->menu_page)
     {
+        case MenuPage::General:
+            switch(state_->menu_page_cursor)
+            {
+                case 0:
+                {
+                    static constexpr uint16_t kSaverValues[] = {0, 10, 30, 60, 120, 300, 600, 1800, 3600};
+                    size_t idx = 0;
+                    while(idx + 1 < (sizeof(kSaverValues) / sizeof(kSaverValues[0]))
+                          && kSaverValues[idx] != state_->screen_saver_timeout_s)
+                        idx++;
+                    if(delta > 0)
+                        idx = idx + 1 < (sizeof(kSaverValues) / sizeof(kSaverValues[0])) ? (idx + 1) : idx;
+                    else
+                        idx = idx > 0 ? (idx - 1) : 0;
+                    state_->screen_saver_timeout_s = kSaverValues[idx];
+                }
+                break;
+                case 1:
+                    state_->knob_pickup_mode = state_->knob_pickup_mode == KnobPickupMode::Pickup
+                                                   ? KnobPickupMode::Jump
+                                                   : KnobPickupMode::Pickup;
+                    ResetKnobPickup();
+                    break;
+                default: return;
+            }
+            break;
+
         case MenuPage::Fx:
             switch(state_->menu_page_cursor)
             {
@@ -787,13 +821,41 @@ void UiController::AdjustMenuValue(int32_t delta, uint32_t now_ms)
                     NormalizeLoopState();
                     break;
                 case 2:
+                    state_->loop_start_measure
+                        = ClampInt(state_->loop_start_measure + (delta > 0 ? 1 : -1), 1, 9999);
+                    SyncLoopTicksFromCoarseStart(*state_);
+                    NormalizeLoopState();
+                    break;
+                case 3:
+                    state_->loop_start_beat
+                        = ClampInt(state_->loop_start_beat + (delta > 0 ? 1 : -1),
+                                   1,
+                                   state_->time_sig_num > 0 ? state_->time_sig_num : 4);
+                    SyncLoopTicksFromCoarseStart(*state_);
+                    NormalizeLoopState();
+                    break;
+                case 4:
                     state_->loop_start_tick = static_cast<uint32_t>(
                         ClampInt(static_cast<int>(state_->loop_start_tick) + (delta > 0 ? 1 : -1),
                                  0,
                                  2000000000));
                     NormalizeLoopState();
                     break;
-                case 3:
+                case 5:
+                    state_->loop_length_measures
+                        = ClampInt(state_->loop_length_measures + (delta > 0 ? 1 : -1), 0, 9999);
+                    SyncLoopTicksFromCoarseLength(*state_);
+                    NormalizeLoopState();
+                    break;
+                case 6:
+                    state_->loop_length_beats
+                        = ClampInt(state_->loop_length_beats + (delta > 0 ? 1 : -1),
+                                   0,
+                                   (state_->time_sig_num > 0 ? state_->time_sig_num : 4) - 1);
+                    SyncLoopTicksFromCoarseLength(*state_);
+                    NormalizeLoopState();
+                    break;
+                case 7:
                     state_->loop_length_ticks = static_cast<uint32_t>(
                         ClampInt(static_cast<int>(state_->loop_length_ticks) + (delta > 0 ? 1 : -1),
                                  1,
@@ -1126,10 +1188,14 @@ bool UiController::HandleKnob(uint8_t index, float value, uint32_t now_ms)
         case KnobPage::Bpm: return false;
     }
 
-    if(!knob_caught_[index])
+    if(state_->knob_pickup_mode == KnobPickupMode::Pickup && !knob_caught_[index])
     {
         if(std::fabs(value - target) > 0.06f)
             return false;
+        knob_caught_[index] = true;
+    }
+    else if(state_->knob_pickup_mode == KnobPickupMode::Jump)
+    {
         knob_caught_[index] = true;
     }
 

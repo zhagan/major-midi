@@ -284,6 +284,164 @@ bool SmfPlayer::IsPlaying() const
     return playing_;
 }
 
+bool SmfPlayer::BuildLoopCache(uint32_t       start_tick,
+                               uint32_t       length_ticks,
+                               LoopCacheEvent* snapshot_events,
+                               size_t         max_snapshot_events,
+                               size_t&        snapshot_event_count,
+                               LoopCacheEvent* loop_events,
+                               size_t         max_loop_events,
+                               size_t&        loop_event_count)
+{
+    snapshot_event_count = 0;
+    loop_event_count     = 0;
+    if(!open_ || length_ticks == 0 || snapshot_events == nullptr || loop_events == nullptr)
+        return false;
+
+    struct ChannelSnapshot
+    {
+        bool     program_valid   = false;
+        uint8_t  program         = 0;
+        bool     pitch_valid     = false;
+        uint8_t  pitch_a         = 0;
+        uint8_t  pitch_b         = 64;
+        bool     cc_valid[128]{};
+        uint8_t  cc_value[128]{};
+    };
+
+    ChannelSnapshot snapshot[16]{};
+    TrackState      build_tracks[kMaxTracks]{};
+    const uint64_t  end_tick = uint64_t(start_tick) + uint64_t(length_ticks);
+
+    for(uint16_t i = 0; i < trackCount_; i++)
+    {
+        build_tracks[i].start        = tracks_[i].start;
+        build_tracks[i].pos          = tracks_[i].start;
+        build_tracks[i].length       = tracks_[i].length;
+        build_tracks[i].remaining    = tracks_[i].length;
+        build_tracks[i].running      = 0;
+        build_tracks[i].sampleFrac   = 0.0;
+        build_tracks[i].tickOffset   = 0;
+        build_tracks[i].sampleOffset = 0;
+        build_tracks[i].finished     = false;
+        build_tracks[i].hasEvent     = false;
+        if(!PrepareNextEvent(i, build_tracks[i]))
+            build_tracks[i].hasEvent = false;
+    }
+
+    while(true)
+    {
+        uint16_t next_idx  = kMaxTracks;
+        uint64_t next_tick = UINT64_MAX;
+        for(uint16_t i = 0; i < trackCount_; i++)
+        {
+            if(build_tracks[i].hasEvent && build_tracks[i].tickOffset < next_tick)
+            {
+                next_tick = build_tracks[i].tickOffset;
+                next_idx  = i;
+            }
+        }
+
+        if(next_idx == kMaxTracks || next_tick >= end_tick)
+            break;
+
+        const MidiEv   ev   = build_tracks[next_idx].nextEv;
+        const uint64_t tick = build_tracks[next_idx].tickOffset;
+
+        if(tick < start_tick)
+        {
+            if(ev.ch < 16)
+            {
+                switch(ev.type)
+                {
+                    case EvType::Program:
+                        snapshot[ev.ch].program_valid = true;
+                        snapshot[ev.ch].program       = ev.a;
+                        break;
+                    case EvType::ControlChange:
+                        snapshot[ev.ch].cc_valid[ev.a] = true;
+                        snapshot[ev.ch].cc_value[ev.a] = ev.b;
+                        break;
+                    case EvType::PitchBend:
+                        snapshot[ev.ch].pitch_valid = true;
+                        snapshot[ev.ch].pitch_a     = ev.a;
+                        snapshot[ev.ch].pitch_b     = ev.b;
+                        break;
+                    default: break;
+                }
+            }
+        }
+        else
+        {
+            if(loop_event_count >= max_loop_events)
+                return false;
+
+            LoopCacheEvent& out = loop_events[loop_event_count++];
+            out.rel_tick        = static_cast<uint32_t>(tick - uint64_t(start_tick));
+            out.rel_sample
+                = static_cast<uint32_t>(SamplesFromTicksRange(start_tick, out.rel_tick));
+            out.type = ev.type;
+            out.ch   = ev.ch;
+            out.a    = ev.a;
+            out.b    = ev.b;
+        }
+
+        if(!PrepareNextEvent(next_idx, build_tracks[next_idx]))
+            build_tracks[next_idx].hasEvent = false;
+    }
+
+    const uint32_t loop_length_samples
+        = static_cast<uint32_t>(SamplesFromTicksRange(start_tick, length_ticks));
+    if(loop_length_samples > 0)
+    {
+        for(size_t i = 0; i < loop_event_count; i++)
+        {
+            if(loop_events[i].rel_sample >= loop_length_samples)
+                loop_events[i].rel_sample = loop_length_samples - 1u;
+        }
+    }
+
+    for(uint8_t ch = 0; ch < 16; ch++)
+    {
+        if(snapshot[ch].program_valid)
+        {
+            if(snapshot_event_count >= max_snapshot_events)
+                return false;
+            LoopCacheEvent& out = snapshot_events[snapshot_event_count++];
+            out.type            = EvType::Program;
+            out.ch              = ch;
+            out.a               = snapshot[ch].program;
+            out.b               = 0;
+        }
+
+        for(uint16_t cc = 0; cc < 128; cc++)
+        {
+            if(!snapshot[ch].cc_valid[cc])
+                continue;
+            if(snapshot_event_count >= max_snapshot_events)
+                return false;
+            LoopCacheEvent& out = snapshot_events[snapshot_event_count++];
+            out.type            = EvType::ControlChange;
+            out.ch              = ch;
+            out.a               = static_cast<uint8_t>(cc);
+            out.b               = snapshot[ch].cc_value[cc];
+        }
+
+        if(snapshot[ch].pitch_valid)
+        {
+            if(snapshot_event_count >= max_snapshot_events)
+                return false;
+            LoopCacheEvent& out = snapshot_events[snapshot_event_count++];
+            out.type            = EvType::PitchBend;
+            out.ch              = ch;
+            out.a               = snapshot[ch].pitch_a;
+            out.b               = snapshot[ch].pitch_b;
+        }
+    }
+
+    return true;
+}
+
 void SmfPlayer::Pump(EventQueue<1024>& queue, uint64_t sampleNow)
 {
     if(!open_ || !playing_)

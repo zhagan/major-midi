@@ -1,5 +1,8 @@
 #include "song_config_persist.h"
 
+#include <cstring>
+
+#include "media_library.h"
 #include "persist_file.h"
 
 namespace major_midi
@@ -7,8 +10,22 @@ namespace major_midi
 namespace
 {
 static constexpr uint8_t kMagic[4] = {'M', 'M', 'S', 'C'};
-static constexpr uint8_t kVersion  = 2;
-static constexpr size_t  kFileSize = 128;
+static constexpr uint8_t kVersion  = 4;
+static constexpr size_t  kFileSize = 160;
+
+uint32_t ReadUint32BE(const uint8_t* data)
+{
+    return (static_cast<uint32_t>(data[0]) << 24) | (static_cast<uint32_t>(data[1]) << 16)
+           | (static_cast<uint32_t>(data[2]) << 8) | static_cast<uint32_t>(data[3]);
+}
+
+void WriteUint32BE(uint8_t* data, uint32_t value)
+{
+    data[0] = static_cast<uint8_t>((value >> 24) & 0xFFu);
+    data[1] = static_cast<uint8_t>((value >> 16) & 0xFFu);
+    data[2] = static_cast<uint8_t>((value >> 8) & 0xFFu);
+    data[3] = static_cast<uint8_t>(value & 0xFFu);
+}
 
 bool ValidChannel(uint8_t ch)
 {
@@ -20,7 +37,16 @@ bool ValidCc(uint8_t cc)
     return cc <= 127;
 }
 
-void WriteConfig(uint8_t* out, const AppState& state)
+void CopyNameField(char* out, size_t out_sz, const uint8_t* in, size_t field_sz)
+{
+    if(out == nullptr || out_sz == 0)
+        return;
+    const size_t copy_len = field_sz < (out_sz - 1) ? field_sz : (out_sz - 1);
+    std::memcpy(out, in, copy_len);
+    out[copy_len] = '\0';
+}
+
+void WriteConfig(uint8_t* out, const AppState& state, const char* sf2_name)
 {
     size_t offset = 0;
     out[offset++] = kMagic[0];
@@ -80,12 +106,27 @@ void WriteConfig(uint8_t* out, const AppState& state)
     }
     out[offset++] = static_cast<uint8_t>((mute_mask >> 8) & 0xFF);
     out[offset++] = static_cast<uint8_t>(mute_mask & 0xFF);
+    out[offset++] = state.song_loop_enabled ? 1 : 0;
+    WriteUint32BE(out + offset, state.loop_start_tick);
+    offset += 4;
+    WriteUint32BE(out + offset, state.loop_length_ticks > 0 ? state.loop_length_ticks : 1u);
+    offset += 4;
+    std::memset(out + offset, 0, MediaLibrary::kNameMax);
+    if(sf2_name != nullptr && sf2_name[0] != '\0')
+    {
+        const size_t name_len = std::strlen(sf2_name);
+        const size_t copy_len = name_len < (MediaLibrary::kNameMax - 1) ? name_len
+                                                                         : (MediaLibrary::kNameMax - 1);
+        std::memcpy(out + offset, sf2_name, copy_len);
+    }
 }
 
-bool ReadConfig(const uint8_t* in, AppState& state)
+bool ReadConfig(const uint8_t* in, AppState& state, char* sf2_name, size_t sf2_name_sz)
 {
-    if(in[0] != kMagic[0] || in[1] != kMagic[1] || in[2] != kMagic[2]
-       || in[3] != kMagic[3] || in[4] != kVersion)
+    if(in[0] != kMagic[0] || in[1] != kMagic[1] || in[2] != kMagic[2] || in[3] != kMagic[3])
+        return false;
+    const uint8_t version = in[4];
+    if(version < 2 || version > kVersion)
         return false;
 
     size_t offset = 5;
@@ -102,7 +143,7 @@ bool ReadConfig(const uint8_t* in, AppState& state)
     for(size_t i = 0; i < 2; i++)
     {
         state.cv_gate.gate_in[i].mode = static_cast<GateInMode>(in[offset++]);
-        if(in[4] >= 2)
+        if(version >= 2)
             state.cv_gate.gate_in[i].channel = in[offset++];
         else
             state.cv_gate.gate_in[i].channel = 0;
@@ -162,14 +203,30 @@ bool ReadConfig(const uint8_t* in, AppState& state)
             return false;
     }
     const uint16_t mute_mask = (uint16_t(in[offset]) << 8) | in[offset + 1];
+    offset += 2;
     for(size_t i = 0; i < 16; i++)
         state.channels[i].muted = ((mute_mask >> i) & 0x01u) != 0;
+
+    if(version >= 3)
+    {
+        state.song_loop_enabled = in[offset++] != 0;
+        state.loop_start_tick   = ReadUint32BE(in + offset);
+        offset += 4;
+        state.loop_length_ticks = ReadUint32BE(in + offset);
+        offset += 4;
+        if(state.loop_length_ticks < 1)
+            state.loop_length_ticks = 1;
+    }
+    if(version >= 4)
+        CopyNameField(sf2_name, sf2_name_sz, in + offset, MediaLibrary::kNameMax);
+    else if(sf2_name != nullptr && sf2_name_sz > 0)
+        sf2_name[0] = '\0';
 
     return true;
 }
 } // namespace
 
-bool LoadSongConfig(const char* path, AppState& state)
+bool LoadSongConfig(const char* path, AppState& state, char* sf2_name, size_t sf2_name_sz)
 {
     uint8_t data[kFileSize]{};
     FIL&    file = SharedPersistFile();
@@ -182,18 +239,19 @@ bool LoadSongConfig(const char* path, AppState& state)
     if(read_result != FR_OK || close_result != FR_OK || read != kFileSize)
         return false;
 
-    return ReadConfig(data, state);
+    return ReadConfig(data, state, sf2_name, sf2_name_sz);
 }
 
 bool SaveSongConfig(const char* path,
                     const AppState& state,
+                    const char*     sf2_name,
                     PersistWriteStage* failed_stage,
                     int*               result_code,
                     PersistProgressFn  progress_fn,
                     void*              progress_ctx)
 {
     uint8_t data[kFileSize];
-    WriteConfig(data, state);
+    WriteConfig(data, state, sf2_name);
 
     if(result_code != nullptr)
         *result_code = -1;

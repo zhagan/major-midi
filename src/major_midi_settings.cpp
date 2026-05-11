@@ -263,7 +263,7 @@ void MajorMidiSettings::Reset()
     loop_start_measure = 1;
     loop_start_beat   = 1;
     loop_start_sub    = 1;
-    loop_length_beats = 16;
+    loop_length_beats = 0;
     for(uint8_t i = 0; i < kChannelCount; i++)
     {
         program_override[i] = kNoOverride;
@@ -329,8 +329,6 @@ bool ParseMajorMidiPayload(const uint8_t* data,
                 settings.loop_start_beat = 1;
             if(settings.loop_start_sub < 1)
                 settings.loop_start_sub = 1;
-            if(settings.loop_length_beats < 1)
-                settings.loop_length_beats = 1;
         }
     }
 

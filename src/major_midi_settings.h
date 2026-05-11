@@ -24,7 +24,7 @@ struct MajorMidiSettings
     uint16_t loop_start_measure = 1;
     uint8_t  loop_start_beat  = 1;
     uint8_t  loop_start_sub   = 1;
-    uint16_t loop_length_beats = 16;
+    uint16_t loop_length_beats = 0;
     int8_t  program_override[kChannelCount];
     int8_t  pan_override[kChannelCount];
     uint8_t volume[kChannelCount];

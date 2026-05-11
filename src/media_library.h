@@ -35,6 +35,8 @@ class MediaLibrary
 
     const char* MidiName(size_t index) const;
     const char* SoundFontName(size_t index) const;
+    size_t      FindMidiByName(const char* name) const;
+    size_t      FindSoundFontByName(const char* name) const;
     void        BuildMidiPath(size_t index, char* out, size_t out_sz) const;
     void        BuildSoundFontPath(size_t index, char* out, size_t out_sz) const;
 

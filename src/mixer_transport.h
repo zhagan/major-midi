@@ -12,6 +12,8 @@ namespace major_midi
 static constexpr size_t kScheduledQueueSize = 1024;
 static constexpr size_t kParsedQueueSize    = 1024;
 static constexpr size_t kImmediateQueueSize = 256;
+static constexpr size_t kLoopCacheMaxEvents = 8192;
+static constexpr size_t kLoopSnapshotMaxEvents = 1024;
 
 class MixerTransport
 {
@@ -41,7 +43,11 @@ class MixerTransport
     uint64_t CycleSampleAt(uint64_t absolute_sample) const;
     uint64_t SongTickAt(uint64_t absolute_sample) const;
     uint64_t CurrentLoopLengthSamples() const { return loop_length_samples_; }
-    bool IsPlaying() const { return player_ != nullptr && player_->IsPlaying(); }
+    bool IsPlaying() const
+    {
+        return (player_ != nullptr && player_->IsPlaying()) || loop_cache_playback_
+               || loop_cache_pending_;
+    }
     bool PopDueMidiOutputEvent(uint64_t due_sample, MidiEv& ev);
 
     uint64_t SampleClock() const { return sample_clock_; }
@@ -69,6 +75,12 @@ class MixerTransport
                       size_t                           offset,
                       size_t                           frames);
     void TransferScheduledFromParser(const AppState& state);
+    bool QueueScheduledLoopEvent(const SmfPlayer::LoopCacheEvent& ev, uint64_t at_sample);
+    void ApplyLoopSnapshotImmediate();
+    void QueueLoopSeamEvents(uint64_t seam_sample);
+    void PumpLoopCache(uint64_t sample_now);
+    bool EnsureLoopCache(const AppState& state);
+    void ResetLoopCachePlayback();
     void FlushLoopBoundaryNotes();
     bool MaybeWrapLoopParser(const AppState& state, uint64_t sample_now);
     void RemapQueuedEventTimes(uint64_t sample_now, double ratio);
@@ -127,6 +139,18 @@ class MixerTransport
     volatile uint64_t  loop_end_sample_   = UINT64_MAX;
     volatile uint64_t  loop_length_samples_ = 0;
     volatile bool      loop_active_       = false;
+    bool               loop_cache_valid_  = false;
+    bool               loop_cache_playback_ = false;
+    bool               loop_cache_pending_ = false;
+    bool               loop_cache_next_primed_ = false;
+    uint32_t           loop_cache_start_tick_ = 0;
+    uint32_t           loop_cache_length_ticks_ = 0;
+    size_t             loop_cache_event_count_ = 0;
+    size_t             loop_snapshot_event_count_ = 0;
+    size_t             loop_cache_cursor_ = 0;
+    size_t             loop_cache_next_cursor_ = 0;
+    SmfPlayer::LoopCacheEvent* loop_snapshot_events_ = nullptr;
+    SmfPlayer::LoopCacheEvent* loop_events_ = nullptr;
     MidiOutputCallback midi_output_callback_ = nullptr;
     void*              midi_output_context_  = nullptr;
 };

@@ -10,6 +10,9 @@ using namespace daisy;
 
 namespace
 {
+SmfPlayer::LoopCacheEvent DSY_SDRAM_BSS s_loop_snapshot_events[kLoopSnapshotMaxEvents];
+SmfPlayer::LoopCacheEvent DSY_SDRAM_BSS s_loop_events[kLoopCacheMaxEvents];
+
 constexpr uint8_t  kActivityNote            = 1u << 0;
 constexpr uint8_t  kActivityCc              = 1u << 1;
 constexpr uint8_t  kActivityProgram         = 1u << 2;
@@ -20,6 +23,8 @@ void MixerTransport::Init(float sample_rate, SmfPlayer& player)
 {
     sample_rate_ = sample_rate;
     player_      = &player;
+    loop_snapshot_events_ = s_loop_snapshot_events;
+    loop_events_          = s_loop_events;
     std::memset(program_override_, -1, sizeof(program_override_));
     std::memset(applied_program_override_, -1, sizeof(applied_program_override_));
     for(size_t ch = 0; ch < 16; ch++)
@@ -56,6 +61,7 @@ void MixerTransport::Reset(const AppState& state)
     phase_start_sample_ = 0;
     phase_start_ticks_  = 0;
     loop_length_samples_ = 0;
+    ResetLoopCachePlayback();
     ApplyMixerState(state, true);
 }
 
@@ -225,8 +231,12 @@ uint64_t MixerTransport::CurrentCycleSample() const
 
 uint64_t MixerTransport::CycleSampleAt(uint64_t absolute_sample) const
 {
+    uint64_t cycle_start_sample = phase_start_sample_;
+    if(loop_cache_pending_ && absolute_sample >= play_start_sample_)
+        cycle_start_sample = play_start_sample_;
+
     const uint64_t elapsed
-        = absolute_sample >= phase_start_sample_ ? (absolute_sample - phase_start_sample_) : 0;
+        = absolute_sample >= cycle_start_sample ? (absolute_sample - cycle_start_sample) : 0;
     const uint64_t loop_length = loop_length_samples_;
     if(loop_active_ && loop_length > 0)
         return elapsed % loop_length;
@@ -242,7 +252,10 @@ uint64_t MixerTransport::SongTickAt(uint64_t absolute_sample) const
 {
     if(player_ == nullptr)
         return 0;
-    return phase_start_ticks_ + player_->TicksFromSamples(CycleSampleAt(absolute_sample));
+    uint64_t cycle_start_ticks = phase_start_ticks_;
+    if(loop_cache_pending_ && absolute_sample >= play_start_sample_)
+        cycle_start_ticks = play_start_ticks_;
+    return cycle_start_ticks + player_->TicksFromSamples(CycleSampleAt(absolute_sample));
 }
 
 uint8_t MixerTransport::ScaleController(uint8_t value, uint8_t max_value) const
@@ -461,6 +474,144 @@ void MixerTransport::TransferScheduledFromParser(const AppState& state)
     }
 }
 
+bool MixerTransport::QueueScheduledLoopEvent(const SmfPlayer::LoopCacheEvent& ev, uint64_t at_sample)
+{
+    MidiEv out{};
+    out.atSample = at_sample;
+    out.type     = ev.type;
+    out.ch       = ev.ch;
+    out.a        = ev.a;
+    out.b        = ev.b;
+    if(!EnqueueScheduled(out))
+        return false;
+    {
+        ScopedIrqBlocker lock;
+        midi_output_.Push(out);
+    }
+    return true;
+}
+
+void MixerTransport::ApplyLoopSnapshotImmediate()
+{
+    for(size_t i = 0; i < loop_snapshot_event_count_; i++)
+    {
+        MidiEv ev{};
+        ev.type = loop_snapshot_events_[i].type;
+        ev.ch   = loop_snapshot_events_[i].ch;
+        ev.a    = loop_snapshot_events_[i].a;
+        ev.b    = loop_snapshot_events_[i].b;
+        DispatchEvent(ev, false);
+    }
+}
+
+void MixerTransport::QueueLoopSeamEvents(uint64_t seam_sample)
+{
+    for(uint8_t ch = 0; ch < 16; ch++)
+    {
+        SmfPlayer::LoopCacheEvent ev{};
+        ev.type = EvType::AllSoundOff;
+        ev.ch   = ch;
+        if(!QueueScheduledLoopEvent(ev, seam_sample))
+            return;
+    }
+
+    for(size_t i = 0; i < loop_snapshot_event_count_; i++)
+    {
+        if(!QueueScheduledLoopEvent(loop_snapshot_events_[i], seam_sample))
+            return;
+    }
+}
+
+void MixerTransport::PumpLoopCache(uint64_t sample_now)
+{
+    if((!loop_cache_playback_ && !loop_cache_pending_) || !loop_cache_valid_)
+        return;
+
+    const uint64_t lookahead_limit = sample_now + player_->LookaheadSamples();
+    const uint64_t cycle_start_sample = loop_cache_pending_ ? play_start_sample_ : phase_start_sample_;
+    const uint64_t cycle_end_sample   = cycle_start_sample + loop_length_samples_;
+    while(loop_cache_cursor_ < loop_cache_event_count_)
+    {
+        const uint64_t event_sample
+            = cycle_start_sample + uint64_t(loop_events_[loop_cache_cursor_].rel_sample);
+        if(event_sample > lookahead_limit || event_sample >= cycle_end_sample)
+            break;
+        if(!QueueScheduledLoopEvent(loop_events_[loop_cache_cursor_], event_sample))
+            break;
+        loop_cache_cursor_++;
+    }
+
+    if(loop_cache_playback_ && lookahead_limit >= cycle_end_sample)
+    {
+        if(!loop_cache_next_primed_)
+        {
+            QueueLoopSeamEvents(cycle_end_sample);
+            loop_cache_next_primed_ = true;
+            loop_cache_next_cursor_ = 0;
+        }
+
+        while(loop_cache_next_cursor_ < loop_cache_event_count_)
+        {
+            const uint64_t event_sample
+                = cycle_end_sample + uint64_t(loop_events_[loop_cache_next_cursor_].rel_sample);
+            if(event_sample > lookahead_limit)
+                break;
+            if(!QueueScheduledLoopEvent(loop_events_[loop_cache_next_cursor_], event_sample))
+                break;
+            loop_cache_next_cursor_++;
+        }
+    }
+}
+
+bool MixerTransport::EnsureLoopCache(const AppState& state)
+{
+    if(!LoopActive(state))
+    {
+        loop_cache_valid_ = false;
+        return false;
+    }
+
+    const uint32_t start_tick  = static_cast<uint32_t>(LoopStartTicks(state));
+    const uint32_t length_tick = static_cast<uint32_t>(LoopLengthTicks(state));
+    if(loop_cache_valid_ && start_tick == loop_cache_start_tick_
+       && length_tick == loop_cache_length_ticks_)
+        return true;
+
+    size_t snapshot_count = 0;
+    size_t event_count    = 0;
+    const bool ok         = player_->BuildLoopCache(start_tick,
+                                            length_tick,
+                                            loop_snapshot_events_,
+                                            kLoopSnapshotMaxEvents,
+                                            snapshot_count,
+                                            loop_events_,
+                                            kLoopCacheMaxEvents,
+                                            event_count);
+    if(!ok)
+    {
+        loop_cache_valid_          = false;
+        loop_snapshot_event_count_ = 0;
+        loop_cache_event_count_    = 0;
+        return false;
+    }
+
+    loop_cache_valid_           = true;
+    loop_cache_start_tick_      = start_tick;
+    loop_cache_length_ticks_    = length_tick;
+    loop_snapshot_event_count_  = snapshot_count;
+    loop_cache_event_count_     = event_count;
+    return true;
+}
+
+void MixerTransport::ResetLoopCachePlayback()
+{
+    loop_cache_playback_    = false;
+    loop_cache_pending_     = false;
+    loop_cache_next_primed_ = false;
+    loop_cache_cursor_      = 0;
+    loop_cache_next_cursor_ = 0;
+}
+
 void MixerTransport::FlushLoopBoundaryNotes()
 {
     for(uint8_t ch = 0; ch < 16; ch++)
@@ -500,6 +651,22 @@ bool MixerTransport::MaybeWrapLoopParser(const AppState& state, uint64_t sample_
     const uint64_t loop_start_ticks   = LoopStartTicks(state);
     const uint64_t restart_sample     = LoopEndSample(state);
     const uint64_t loop_start_samples = player_->SamplesFromTicks(loop_start_ticks);
+
+    if(loop_cache_valid_)
+    {
+        player_->Stop();
+        parsed_.Clear();
+        play_start_sample_   = restart_sample;
+        play_start_ticks_    = loop_start_ticks;
+        loop_cache_playback_ = false;
+        loop_cache_pending_  = true;
+        loop_cache_cursor_      = 0;
+        loop_cache_next_cursor_ = 0;
+        loop_cache_next_primed_ = false;
+        QueueLoopSeamEvents(restart_sample);
+        PumpLoopCache(sample_now);
+        return true;
+    }
 
     FlushLoopBoundaryNotes();
     parsed_.Clear();
@@ -576,8 +743,30 @@ void MixerTransport::ProcessAudio(AudioHandle::InputBuffer  in,
     }
 
     sample_clock_ = block_sample + size;
-    if(loop_active_ && phase_start_sample_ != play_start_sample_
-       && sample_clock_ >= play_start_sample_)
+    if(loop_cache_pending_ && sample_clock_ >= play_start_sample_)
+    {
+        phase_start_sample_  = play_start_sample_;
+        phase_start_ticks_   = play_start_ticks_;
+        loop_end_sample_     = phase_start_sample_ + loop_length_samples_;
+        loop_cache_playback_ = true;
+        loop_cache_pending_  = false;
+    }
+    if(loop_cache_playback_ && loop_length_samples_ > 0)
+    {
+        while(sample_clock_ >= loop_end_sample_)
+        {
+            phase_start_sample_ = loop_end_sample_;
+            phase_start_ticks_  = loop_cache_start_tick_;
+            play_start_sample_  = phase_start_sample_;
+            play_start_ticks_   = phase_start_ticks_;
+            loop_end_sample_    = phase_start_sample_ + loop_length_samples_;
+            loop_cache_cursor_  = loop_cache_next_primed_ ? loop_cache_next_cursor_ : 0;
+            loop_cache_next_cursor_ = 0;
+            loop_cache_next_primed_ = false;
+        }
+    }
+    else if(loop_active_ && phase_start_sample_ != play_start_sample_
+            && sample_clock_ >= play_start_sample_)
     {
         phase_start_sample_ = play_start_sample_;
         phase_start_ticks_  = play_start_ticks_;
@@ -586,6 +775,7 @@ void MixerTransport::ProcessAudio(AudioHandle::InputBuffer  in,
 
 void MixerTransport::StartPlayback(const AppState& state)
 {
+    ResetLoopCachePlayback();
     ClearQueues();
     std::memset(current_program_, 0, sizeof(current_program_));
     std::memset(note_refcount_, 0, sizeof(note_refcount_));
@@ -637,6 +827,7 @@ void MixerTransport::StartPlayback(const AppState& state)
 void MixerTransport::StopPlayback(const AppState& state)
 {
     player_->Stop();
+    ResetLoopCachePlayback();
     ClearQueues();
     ClearLiveMixerOverrides();
     std::memset(current_program_, 0, sizeof(current_program_));
@@ -769,6 +960,8 @@ void MixerTransport::Update(const AppState& state)
     if(player_ == nullptr)
         return;
 
+    const uint64_t requested_loop_start_tick  = LoopStartTicks(state);
+    const uint64_t requested_loop_length_tick = LoopLengthTicks(state);
     master_volume_max_ = state.sf2_master_volume_max;
     expression_max_    = state.sf2_expression_max;
     reverb_max_        = state.sf2_reverb_max;
@@ -777,7 +970,18 @@ void MixerTransport::Update(const AppState& state)
     loop_active_       = LoopActive(state);
     loop_length_samples_ = loop_active_ ? LoopLengthSamples(state) : 0;
     loop_end_sample_   = loop_active_ ? LoopBoundarySample(state) : UINT64_MAX;
+    if(!loop_active_)
+        loop_cache_valid_ = false;
 
+    const bool loop_settings_changed
+        = loop_active_
+          && (requested_loop_start_tick != loop_cache_start_tick_
+              || requested_loop_length_tick != loop_cache_length_ticks_);
+
+    if(loop_active_ && !IsPlaying() && (!loop_cache_valid_ || loop_settings_changed))
+        EnsureLoopCache(state);
+
+    bool restart_loop_transport = false;
     if(state.bpm != applied_bpm_)
     {
         const bool     had_applied_bpm = applied_bpm_ > 0;
@@ -791,24 +995,69 @@ void MixerTransport::Update(const AppState& state)
         const float scale = file_bpm_ > 0.0f ? static_cast<float>(state.bpm) / file_bpm_
                                              : 1.0f;
         player_->SetTempoScale(scale, sample_clock_);
-        if(player_->IsPlaying() && had_applied_bpm)
+        if((player_->IsPlaying() || loop_cache_playback_) && had_applied_bpm)
         {
-            RemapQueuedEventTimes(sample_clock_, ratio);
-            const uint64_t new_ticks_into_cycle = player_->TicksFromSamples(current_cycle);
-            phase_start_ticks_ = current_tick >= new_ticks_into_cycle
-                                     ? (current_tick - new_ticks_into_cycle)
-                                     : 0;
+            if(loop_active_ && state.transport_playing)
+            {
+                const uint64_t loop_start_tick   = requested_loop_start_tick;
+                const uint64_t loop_length_ticks = requested_loop_length_tick;
+                const uint64_t ticks_into_cycle
+                    = current_tick > loop_start_tick ? (current_tick - loop_start_tick) : 0;
+                const uint64_t clamped_ticks_into_cycle
+                    = loop_length_ticks > 0
+                          ? (ticks_into_cycle < loop_length_ticks ? ticks_into_cycle
+                                                                  : (loop_length_ticks - 1))
+                          : 0;
+                const uint64_t cycle_sample
+                    = player_->SamplesFromTicksRange(loop_start_tick, clamped_ticks_into_cycle);
+
+                ClearQueues();
+                ResetLoopCachePlayback();
+                loop_cache_valid_ = false;
+                EnsureLoopCache(state);
+
+                player_->SeekToSample(player_->SamplesFromTicks(current_tick), sample_clock_);
+                play_start_sample_  = sample_clock_ >= cycle_sample ? (sample_clock_ - cycle_sample)
+                                                                    : 0;
+                play_start_ticks_   = loop_start_tick;
+                phase_start_sample_ = play_start_sample_;
+                phase_start_ticks_  = loop_start_tick;
+                loop_length_samples_ = LoopLengthSamples(state);
+                loop_end_sample_     = phase_start_sample_ + loop_length_samples_;
+            }
+            else
+            {
+                RemapQueuedEventTimes(sample_clock_, ratio);
+                const uint64_t new_ticks_into_cycle = player_->TicksFromSamples(current_cycle);
+                phase_start_ticks_ = current_tick >= new_ticks_into_cycle
+                                         ? (current_tick - new_ticks_into_cycle)
+                                         : 0;
+            }
         }
         applied_bpm_ = state.bpm;
     }
 
-    if(state.transport_playing && !player_->IsPlaying())
+    if(loop_settings_changed && state.transport_playing)
+        restart_loop_transport = true;
+
+    if(restart_loop_transport)
+    {
+        StopPlayback(state);
+        EnsureLoopCache(state);
         StartPlayback(state);
-    else if(!state.transport_playing && player_->IsPlaying())
+    }
+
+    if(state.transport_playing && !IsPlaying())
+        StartPlayback(state);
+    else if(!state.transport_playing && IsPlaying())
         StopPlayback(state);
 
     const uint64_t sample_now = sample_clock_;
-    if(player_->IsPlaying())
+    if(loop_cache_playback_ || loop_cache_pending_)
+    {
+        PumpLoopCache(sample_now);
+    }
+    else if(player_->IsPlaying())
     {
         for(int i = 0; i < 2; i++)
         {
