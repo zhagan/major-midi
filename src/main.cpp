@@ -63,6 +63,7 @@ uint32_t          channel_flash_until[16]{};
 uint32_t          channel_monitor_until[16]{};
 volatile uint64_t sync_sample_counter      = 0;
 volatile uint32_t pending_midi_clock_edges = 0;
+volatile uint32_t pending_midi_tx_flushes  = 0;
 volatile float    audio_output_gain        = 1.0f;
 volatile float    audio_fade_target_gain   = 1.0f;
 volatile float    audio_fade_step          = 0.0f;
@@ -71,11 +72,10 @@ volatile uint32_t audio_fade_remaining     = 0;
 constexpr uint32_t kLedFlashMs = 90;
 constexpr uint32_t kMonitorFlashMs         = 250;
 constexpr uint32_t kRenderIntervalStoppedMs    = 100;
-constexpr uint32_t kRenderIntervalPlayingMs    = 250;
+constexpr uint32_t kRenderIntervalPlayingMs    = 1000;
 constexpr uint32_t kRenderIntervalUiActiveMs   = 100;
 constexpr uint32_t kUiActiveHoldMs             = 1200;
-constexpr uint64_t kScheduledMidiLeadSamples   = 512;
-constexpr uint32_t kMidiTxTimerRateHz          = 2000;
+constexpr uint32_t kMidiTxTimerRateHz          = 8000;
 constexpr uint32_t kAudioFadeMs                = 8;
 enum class MidiOutputKind : uint8_t
 {
@@ -325,6 +325,21 @@ void SendToDestinationOutput(bool to_usb, MidiOutputKind kind, const uint8_t* by
         SendRawMidi(uart_midi, bytes, size);
 }
 
+void SendAllNotesAndSoundOffToConfiguredOutputs()
+{
+    const MidiOutputKind kind = MidiOutputKind::Ccs;
+    uint8_t              bytes[3]{};
+    bytes[2] = 0;
+    for(uint8_t ch = 0; ch < 16; ch++)
+    {
+        bytes[0] = static_cast<uint8_t>(0xB0 | (ch & 0x0F));
+        bytes[1] = 123;
+        SendToConfiguredOutputs(kind, bytes, 3);
+        bytes[1] = 120;
+        SendToConfiguredOutputs(kind, bytes, 3);
+    }
+}
+
 bool MidiEventToRawBytes(const MidiEvent& msg, uint8_t out[3], size_t& size, MidiOutputKind& kind)
 {
     switch(msg.type)
@@ -503,7 +518,7 @@ MidiEv PrepareScheduledMidiOutput(MidiEv ev)
 
 void FlushScheduledMidiOut()
 {
-    const uint64_t due_sample = transport.SampleClock() + kScheduledMidiLeadSamples;
+    const uint64_t due_sample = transport.SampleClock() + hw.AudioBlockSize();
     MidiEv         ev{};
     while(transport.PopDueMidiOutputEvent(due_sample, ev))
     {
@@ -521,7 +536,7 @@ void FlushScheduledMidiOut()
 
 void MidiTxTimerCallback(void*)
 {
-    FlushScheduledMidiOut();
+    pending_midi_tx_flushes++;
 }
 
 void MaybeForwardThru(const MidiEvent& msg, bool from_usb)
@@ -1208,6 +1223,12 @@ int main(void)
         UiEvent        events[20];
         uint8_t        channel_activity[16]{};
 
+        if(pending_midi_tx_flushes > 0)
+        {
+            pending_midi_tx_flushes = 0;
+            FlushScheduledMidiOut();
+        }
+
         ui_input.Sample(raw);
         app_state.sync_external = raw.sync_external;
         const size_t event_count = ui_events.Translate(raw, now, events, 20);
@@ -1325,6 +1346,7 @@ int main(void)
         }
         else if(transport_stopped)
         {
+            SendAllNotesAndSoundOffToConfiguredOutputs();
             const uint8_t stop = 0xFC;
             SendToConfiguredOutputs(MidiOutputKind::Transport, &stop, 1);
         }
@@ -1413,11 +1435,13 @@ int main(void)
 
         if(ui_dirty || (now - render_ms >= render_interval_ms))
         {
+            FlushScheduledMidiOut();
             render_ms = now;
             if(screen_saver_active)
                 ui_renderer.RenderScreenSaver(now);
             else
                 ui_renderer.Render(effective_state, media_library, now);
+            FlushScheduledMidiOut();
             ui_dirty = false;
         }
 
