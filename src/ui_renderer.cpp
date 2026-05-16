@@ -50,7 +50,7 @@ size_t MenuPageItemCount(const AppState& state, const MediaLibrary& library)
         case MenuPage::Fx: return 5;
         case MenuPage::Song: return 9;
         case MenuPage::Sf2: return 9;
-        case MenuPage::Midi: return 12;
+        case MenuPage::Midi: return 11;
         case MenuPage::CvGate: return CvGateVisibleItemCount(state.cv_gate);
         case MenuPage::LoadMidi: return library.MidiCount();
         case MenuPage::LoadSf2: return library.SoundFontCount();
@@ -363,16 +363,20 @@ void UiRenderer::Render(const AppState& state,
             }
             else if(state.menu_page == MenuPage::Midi)
             {
+                const MidiOutputRouting& port_routing
+                    = state.midi_menu_port == MidiOutputPort::Usb ? state.midi_routing.usb
+                                                                  : state.midi_routing.uart;
+                const MidiChannelOutputRouting& channel_routing
+                    = port_routing.channels[state.midi_menu_channel];
                 switch(static_cast<MidiSettingsMenuItem>(item))
                 {
-                    case MidiSettingsMenuItem::UsbNotes: std::snprintf(line, sizeof(line), "%cUSB Notes %s", item == state.menu_page_cursor ? '>' : ' ', state.midi_routing.usb.notes ? "On" : "Off"); break;
-                    case MidiSettingsMenuItem::UsbCcs: std::snprintf(line, sizeof(line), "%cUSB CCs %s", item == state.menu_page_cursor ? '>' : ' ', state.midi_routing.usb.ccs ? "On" : "Off"); break;
-                    case MidiSettingsMenuItem::UsbPrograms: std::snprintf(line, sizeof(line), "%cUSB Prog %s", item == state.menu_page_cursor ? '>' : ' ', state.midi_routing.usb.programs ? "On" : "Off"); break;
+                    case MidiSettingsMenuItem::OutputChannel: std::snprintf(line, sizeof(line), "%cOut Ch %02d", item == state.menu_page_cursor ? '>' : ' ', static_cast<int>(state.midi_menu_channel) + 1); break;
+                    case MidiSettingsMenuItem::OutputPort: std::snprintf(line, sizeof(line), "%cPort %s", item == state.menu_page_cursor ? '>' : ' ', MidiOutputPortName(state.midi_menu_port)); break;
+                    case MidiSettingsMenuItem::OutputNotes: std::snprintf(line, sizeof(line), "%cNotes %s", item == state.menu_page_cursor ? '>' : ' ', channel_routing.notes ? "On" : "Off"); break;
+                    case MidiSettingsMenuItem::OutputCcs: std::snprintf(line, sizeof(line), "%cCCs %s", item == state.menu_page_cursor ? '>' : ' ', channel_routing.ccs ? "On" : "Off"); break;
+                    case MidiSettingsMenuItem::OutputPrograms: std::snprintf(line, sizeof(line), "%cProg %s", item == state.menu_page_cursor ? '>' : ' ', channel_routing.programs ? "On" : "Off"); break;
                     case MidiSettingsMenuItem::UsbTransport: std::snprintf(line, sizeof(line), "%cUSB Trn %s", item == state.menu_page_cursor ? '>' : ' ', state.midi_routing.usb.transport ? "On" : "Off"); break;
                     case MidiSettingsMenuItem::UsbClock: std::snprintf(line, sizeof(line), "%cUSB Clk %s", item == state.menu_page_cursor ? '>' : ' ', state.midi_routing.usb.clock ? "On" : "Off"); break;
-                    case MidiSettingsMenuItem::UartNotes: std::snprintf(line, sizeof(line), "%cUART Notes %s", item == state.menu_page_cursor ? '>' : ' ', state.midi_routing.uart.notes ? "On" : "Off"); break;
-                    case MidiSettingsMenuItem::UartCcs: std::snprintf(line, sizeof(line), "%cUART CCs %s", item == state.menu_page_cursor ? '>' : ' ', state.midi_routing.uart.ccs ? "On" : "Off"); break;
-                    case MidiSettingsMenuItem::UartPrograms: std::snprintf(line, sizeof(line), "%cUART Prog %s", item == state.menu_page_cursor ? '>' : ' ', state.midi_routing.uart.programs ? "On" : "Off"); break;
                     case MidiSettingsMenuItem::UartTransport: std::snprintf(line, sizeof(line), "%cUART Trn %s", item == state.menu_page_cursor ? '>' : ' ', state.midi_routing.uart.transport ? "On" : "Off"); break;
                     case MidiSettingsMenuItem::UartClock: std::snprintf(line, sizeof(line), "%cUART Clk %s", item == state.menu_page_cursor ? '>' : ' ', state.midi_routing.uart.clock ? "On" : "Off"); break;
                     case MidiSettingsMenuItem::UsbInToUart: std::snprintf(line, sizeof(line), "%cUSB>UART %s", item == state.menu_page_cursor ? '>' : ' ', state.midi_routing.usb_in_to_uart ? "On" : "Off"); break;

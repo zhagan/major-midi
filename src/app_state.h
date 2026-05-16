@@ -62,18 +62,23 @@ enum class KnobPickupMode : uint8_t
 
 enum class MidiSettingsMenuItem : uint8_t
 {
-    UsbNotes,
-    UsbCcs,
-    UsbPrograms,
+    OutputChannel,
+    OutputPort,
+    OutputNotes,
+    OutputCcs,
+    OutputPrograms,
     UsbTransport,
     UsbClock,
-    UartNotes,
-    UartCcs,
-    UartPrograms,
     UartTransport,
     UartClock,
     UsbInToUart,
     UartInToUsb,
+};
+
+enum class MidiOutputPort : uint8_t
+{
+    Usb,
+    Uart,
 };
 
 enum class CvGateMenuItem : uint8_t
@@ -199,13 +204,18 @@ struct CvGateConfig
     CvOutputConfig   cv_out[2]{};
 };
 
-struct MidiOutputRouting
+struct MidiChannelOutputRouting
 {
     bool notes     = false;
     bool ccs       = false;
     bool programs  = false;
+};
+
+struct MidiOutputRouting
+{
     bool transport = false;
     bool clock     = false;
+    MidiChannelOutputRouting channels[16]{};
 };
 
 struct MidiRoutingConfig
@@ -263,6 +273,8 @@ struct AppState
     LoopEditItem loop_edit_cursor        = LoopEditItem::Active;
     bool         loop_editing            = false;
     uint8_t      sf2_channel             = 0;
+    uint8_t      midi_menu_channel       = 0;
+    MidiOutputPort midi_menu_port        = MidiOutputPort::Uart;
     int          loop_start_measure      = 1;
     int          loop_start_beat         = 1;
     uint32_t     loop_start_tick         = 0;
@@ -382,6 +394,16 @@ inline const char* MenuPageName(MenuPage page)
         case MenuPage::SaveAllConfirm: return "Save All";
     }
     return "";
+}
+
+inline const char* MidiOutputPortName(MidiOutputPort port)
+{
+    switch(port)
+    {
+        case MidiOutputPort::Usb: return "USB";
+        case MidiOutputPort::Uart: return "UART";
+    }
+    return "UART";
 }
 
 inline const char* KnobPickupModeName(KnobPickupMode mode)

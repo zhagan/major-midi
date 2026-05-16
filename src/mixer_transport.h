@@ -19,10 +19,12 @@ class MixerTransport
 {
   public:
     using MidiOutputCallback = void (*)(const MidiEv& ev, void* context);
+    using DebugMidiCallback  = void (*)(const char* stage, const MidiEv& ev, void* context);
 
     void Init(float sample_rate, SmfPlayer& player);
     void Reset(const AppState& state);
     void SetMidiOutputCallback(MidiOutputCallback callback, void* context);
+    void SetDebugMidiCallback(DebugMidiCallback callback, void* context);
     void SetFileBpm(float bpm);
     void ProcessAudio(daisy::AudioHandle::InputBuffer  in,
                       daisy::AudioHandle::OutputBuffer out,
@@ -48,8 +50,6 @@ class MixerTransport
         return (player_ != nullptr && player_->IsPlaying()) || loop_cache_playback_
                || loop_cache_pending_;
     }
-    bool PopDueMidiOutputEvent(uint64_t due_sample, MidiEv& ev);
-
     uint64_t SampleClock() const { return sample_clock_; }
 
   private:
@@ -102,7 +102,6 @@ class MixerTransport
     volatile uint64_t  sample_clock_ = 0;
     EventQueue<kScheduledQueueSize> scheduled_{};
     EventQueue<kParsedQueueSize>    parsed_{};
-    EventQueue<kScheduledQueueSize> midi_output_{};
     EventQueue<kImmediateQueueSize> immediate_{};
     ChannelState       applied_channels_[16]{};
     bool               applied_mute_all_ = false;
@@ -153,6 +152,8 @@ class MixerTransport
     SmfPlayer::LoopCacheEvent* loop_events_ = nullptr;
     MidiOutputCallback midi_output_callback_ = nullptr;
     void*              midi_output_context_  = nullptr;
+    DebugMidiCallback  debug_midi_callback_  = nullptr;
+    void*              debug_midi_context_   = nullptr;
 };
 
 } // namespace major_midi

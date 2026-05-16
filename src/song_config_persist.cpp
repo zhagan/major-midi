@@ -10,8 +10,8 @@ namespace major_midi
 namespace
 {
 static constexpr uint8_t kMagic[4] = {'M', 'M', 'S', 'C'};
-static constexpr uint8_t kVersion  = 4;
-static constexpr size_t  kFileSize = 160;
+static constexpr uint8_t kVersion  = 5;
+static constexpr size_t  kFileSize = 192;
 
 uint32_t ReadUint32BE(const uint8_t* data)
 {
@@ -35,6 +35,20 @@ bool ValidChannel(uint8_t ch)
 bool ValidCc(uint8_t cc)
 {
     return cc <= 127;
+}
+
+uint8_t PackChannelOutput(const MidiChannelOutputRouting& routing)
+{
+    return static_cast<uint8_t>((routing.notes ? 0x01 : 0x00)
+                                | (routing.ccs ? 0x02 : 0x00)
+                                | (routing.programs ? 0x04 : 0x00));
+}
+
+void UnpackChannelOutput(uint8_t packed, MidiChannelOutputRouting& routing)
+{
+    routing.notes    = (packed & 0x01) != 0;
+    routing.ccs      = (packed & 0x02) != 0;
+    routing.programs = (packed & 0x04) != 0;
 }
 
 void CopyNameField(char* out, size_t out_sz, const uint8_t* in, size_t field_sz)
@@ -80,15 +94,14 @@ void WriteConfig(uint8_t* out, const AppState& state, const char* sf2_name)
         out[offset++] = static_cast<uint8_t>(state.cv_gate.cv_out[i].priority);
     }
 
-    auto pack_output = [](const MidiOutputRouting& routing) {
-        return static_cast<uint8_t>((routing.notes ? 0x01 : 0x00)
-                                    | (routing.ccs ? 0x02 : 0x00)
-                                    | (routing.programs ? 0x04 : 0x00)
-                                    | (routing.transport ? 0x08 : 0x00)
-                                    | (routing.clock ? 0x10 : 0x00));
-    };
-    out[offset++] = pack_output(state.midi_routing.usb);
-    out[offset++] = pack_output(state.midi_routing.uart);
+    out[offset++] = (state.midi_routing.usb.transport ? 0x01 : 0x00)
+                    | (state.midi_routing.usb.clock ? 0x02 : 0x00);
+    out[offset++] = (state.midi_routing.uart.transport ? 0x01 : 0x00)
+                    | (state.midi_routing.uart.clock ? 0x02 : 0x00);
+    for(size_t ch = 0; ch < 16; ch++)
+        out[offset++] = PackChannelOutput(state.midi_routing.usb.channels[ch]);
+    for(size_t ch = 0; ch < 16; ch++)
+        out[offset++] = PackChannelOutput(state.midi_routing.uart.channels[ch]);
     out[offset++] = state.midi_routing.usb_in_to_uart ? 1 : 0;
     out[offset++] = state.midi_routing.uart_in_to_usb ? 1 : 0;
 
@@ -174,21 +187,51 @@ bool ReadConfig(const uint8_t* in, AppState& state, char* sf2_name, size_t sf2_n
             return false;
     }
 
-    auto unpack_output = [](uint8_t packed, MidiOutputRouting& routing) {
-        routing.notes     = (packed & 0x01) != 0;
-        routing.ccs       = (packed & 0x02) != 0;
-        routing.programs  = (packed & 0x04) != 0;
-        routing.transport = (packed & 0x08) != 0;
-        routing.clock     = (packed & 0x10) != 0;
-    };
     const uint8_t usb_packed  = in[offset++];
     const uint8_t uart_packed = in[offset++];
-    if((usb_packed & ~0x1F) != 0 || (uart_packed & ~0x1F) != 0)
-        return false;
-    unpack_output(usb_packed, state.midi_routing.usb);
-    unpack_output(uart_packed, state.midi_routing.uart);
-    state.midi_routing.usb_in_to_uart = in[offset++] != 0;
-    state.midi_routing.uart_in_to_usb = in[offset++] != 0;
+    if(version < 5)
+    {
+        if((usb_packed & ~0x1F) != 0 || (uart_packed & ~0x1F) != 0)
+            return false;
+        state.midi_routing.usb.transport  = (usb_packed & 0x08) != 0;
+        state.midi_routing.usb.clock      = (usb_packed & 0x10) != 0;
+        state.midi_routing.uart.transport = (uart_packed & 0x08) != 0;
+        state.midi_routing.uart.clock     = (uart_packed & 0x10) != 0;
+        for(size_t ch = 0; ch < 16; ch++)
+        {
+            state.midi_routing.usb.channels[ch].notes    = (usb_packed & 0x01) != 0;
+            state.midi_routing.usb.channels[ch].ccs      = (usb_packed & 0x02) != 0;
+            state.midi_routing.usb.channels[ch].programs = (usb_packed & 0x04) != 0;
+            state.midi_routing.uart.channels[ch].notes    = (uart_packed & 0x01) != 0;
+            state.midi_routing.uart.channels[ch].ccs      = (uart_packed & 0x02) != 0;
+            state.midi_routing.uart.channels[ch].programs = (uart_packed & 0x04) != 0;
+        }
+        state.midi_routing.usb_in_to_uart = in[offset++] != 0;
+        state.midi_routing.uart_in_to_usb = in[offset++] != 0;
+    }
+    else
+    {
+        if((usb_packed & ~0x03) != 0 || (uart_packed & ~0x03) != 0)
+            return false;
+        state.midi_routing.usb.transport  = (usb_packed & 0x01) != 0;
+        state.midi_routing.usb.clock      = (usb_packed & 0x02) != 0;
+        state.midi_routing.uart.transport = (uart_packed & 0x01) != 0;
+        state.midi_routing.uart.clock     = (uart_packed & 0x02) != 0;
+        for(size_t ch = 0; ch < 16; ch++)
+        {
+            if((in[offset] & ~0x07) != 0)
+                return false;
+            UnpackChannelOutput(in[offset++], state.midi_routing.usb.channels[ch]);
+        }
+        for(size_t ch = 0; ch < 16; ch++)
+        {
+            if((in[offset] & ~0x07) != 0)
+                return false;
+            UnpackChannelOutput(in[offset++], state.midi_routing.uart.channels[ch]);
+        }
+        state.midi_routing.usb_in_to_uart = in[offset++] != 0;
+        state.midi_routing.uart_in_to_usb = in[offset++] != 0;
+    }
 
     for(size_t i = 0; i < 16; i++)
     {

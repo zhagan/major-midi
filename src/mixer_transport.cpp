@@ -111,23 +111,11 @@ bool MixerTransport::PopScheduled(MidiEv& ev)
     return scheduled_.Pop(ev);
 }
 
-bool MixerTransport::PopDueMidiOutputEvent(uint64_t due_sample, MidiEv& ev)
-{
-    ScopedIrqBlocker lock;
-    MidiEv next{};
-    if(!midi_output_.Peek(next))
-        return false;
-    if(next.atSample > due_sample)
-        return false;
-    return midi_output_.Pop(ev);
-}
-
 void MixerTransport::ClearQueues()
 {
     ScopedIrqBlocker lock;
     scheduled_.Clear();
     parsed_.Clear();
-    midi_output_.Clear();
     immediate_.Clear();
 }
 
@@ -382,6 +370,12 @@ void MixerTransport::SetMidiOutputCallback(MidiOutputCallback callback, void* co
     midi_output_context_  = context;
 }
 
+void MixerTransport::SetDebugMidiCallback(DebugMidiCallback callback, void* context)
+{
+    debug_midi_callback_ = callback;
+    debug_midi_context_  = context;
+}
+
 void MixerTransport::DispatchEvent(const MidiEv& ev, bool scheduled_source)
 {
     MidiEv actual = ev;
@@ -433,6 +427,8 @@ void MixerTransport::DispatchEvent(const MidiEv& ev, bool scheduled_source)
 
     if(scheduled_source && midi_output_callback_ != nullptr)
         midi_output_callback_(actual, midi_output_context_);
+    if(scheduled_source && debug_midi_callback_ != nullptr)
+        debug_midi_callback_("DSP", actual, debug_midi_context_);
 }
 
 void MixerTransport::RenderFrames(AudioHandle::OutputBuffer out,
@@ -466,10 +462,8 @@ void MixerTransport::TransferScheduledFromParser(const AppState& state)
             break;
         if(!EnqueueScheduled(ev))
             break;
-        {
-            ScopedIrqBlocker lock;
-            midi_output_.Push(ev);
-        }
+        if(debug_midi_callback_ != nullptr)
+            debug_midi_callback_("SCH", ev, debug_midi_context_);
         parsed_.Pop(ev);
     }
 }
@@ -484,10 +478,6 @@ bool MixerTransport::QueueScheduledLoopEvent(const SmfPlayer::LoopCacheEvent& ev
     out.b        = ev.b;
     if(!EnqueueScheduled(out))
         return false;
-    {
-        ScopedIrqBlocker lock;
-        midi_output_.Push(out);
-    }
     return true;
 }
 
@@ -694,7 +684,6 @@ void MixerTransport::RemapQueuedEventTimes(uint64_t sample_now, double ratio)
 
     scheduled_.Transform(remap);
     parsed_.Transform(remap);
-    midi_output_.Transform(remap);
 }
 
 void MixerTransport::ProcessAudio(AudioHandle::InputBuffer  in,

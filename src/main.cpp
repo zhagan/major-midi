@@ -77,6 +77,7 @@ constexpr uint32_t kRenderIntervalUiActiveMs   = 100;
 constexpr uint32_t kUiActiveHoldMs             = 1200;
 constexpr uint32_t kMidiTxTimerRateHz          = 8000;
 constexpr uint32_t kAudioFadeMs                = 8;
+constexpr size_t   kScheduledMidiOutQueueSize  = 128;
 enum class MidiOutputKind : uint8_t
 {
     Notes,
@@ -86,21 +87,108 @@ enum class MidiOutputKind : uint8_t
     Clock,
 };
 
+struct ScheduledMidiOutPacket
+{
+    uint32_t       at_sample = 0;
+    MidiOutputKind kind      = MidiOutputKind::Notes;
+    uint8_t        bytes[3]{};
+    uint8_t        size = 0;
+    EvType         type = EvType::NoteOn;
+    uint8_t        ch   = 0;
+    uint8_t        a    = 0;
+    uint8_t        b    = 0;
+};
+
+ScheduledMidiOutPacket scheduled_midi_out_queue[kScheduledMidiOutQueueSize]{};
+size_t                 scheduled_midi_out_head = 0;
+size_t                 scheduled_midi_out_tail = 0;
+
 void UpdateMidiMonitor(const MidiEvent& msg);
 void UpdateMidiMonitor(const MidiEv& ev);
 uint16_t TickToMeasure(uint64_t tick, const SmfPlayer& player);
 uint8_t  TickToBeat(uint64_t tick, const SmfPlayer& player);
 void     SyncLoopDisplayFieldsFromTicks(AppState& state, const SmfPlayer& player);
+bool     ScheduledMidiOutputBlocked(const MidiEv& ev);
+
+bool DebugTraceCandidate(const MidiEv& ev)
+{
+    return ev.ch == 9 && (ev.type == EvType::NoteOn || ev.type == EvType::NoteOff);
+}
+
+const char* DebugTraceTypeName(EvType type)
+{
+    switch(type)
+    {
+        case EvType::NoteOn: return "ON";
+        case EvType::NoteOff: return "OFF";
+        case EvType::Program: return "PRG";
+        case EvType::ControlChange: return "CC";
+        case EvType::PitchBend: return "PB";
+        case EvType::AllSoundOff: return "ASO";
+        case EvType::AllNotesOff: return "ANO";
+    }
+    return "?";
+}
+
+void DebugMidiTrace(const char* stage, const MidiEv& ev, void*)
+{
+    if(!kEnableUsbLog || !DebugTraceCandidate(ev))
+        return;
+    LOG("MDBG %s at=%lu now=%lu t=%s ch=%u a=%u b=%u",
+        stage,
+        static_cast<unsigned long>(ev.atSample),
+        static_cast<unsigned long>(transport.SampleClock()),
+        DebugTraceTypeName(ev.type),
+        static_cast<unsigned>(ev.ch + 1),
+        static_cast<unsigned>(ev.a),
+        static_cast<unsigned>(ev.b));
+}
 
 bool MidiOutputEnabled(const MidiOutputRouting& routing, MidiOutputKind kind)
 {
     switch(kind)
     {
-        case MidiOutputKind::Notes: return routing.notes;
-        case MidiOutputKind::Ccs: return routing.ccs;
-        case MidiOutputKind::Programs: return routing.programs;
         case MidiOutputKind::Transport: return routing.transport;
         case MidiOutputKind::Clock: return routing.clock;
+        case MidiOutputKind::Notes:
+        case MidiOutputKind::Ccs:
+        case MidiOutputKind::Programs: break;
+    }
+    return false;
+}
+
+bool ExtractMidiChannel(const uint8_t* bytes, size_t size, uint8_t& channel)
+{
+    if(bytes == nullptr || size == 0)
+        return false;
+    const uint8_t status = bytes[0];
+    if(status >= 0x80 && status <= 0xEF)
+    {
+        channel = static_cast<uint8_t>(status & 0x0F);
+        return true;
+    }
+    return false;
+}
+
+bool MidiOutputEnabled(const MidiOutputRouting& routing,
+                       MidiOutputKind          kind,
+                       const uint8_t*          bytes,
+                       size_t                  size)
+{
+    if(kind == MidiOutputKind::Transport || kind == MidiOutputKind::Clock)
+        return MidiOutputEnabled(routing, kind);
+
+    uint8_t channel = 0;
+    if(!ExtractMidiChannel(bytes, size, channel) || channel >= 16)
+        return false;
+
+    switch(kind)
+    {
+        case MidiOutputKind::Notes: return routing.channels[channel].notes;
+        case MidiOutputKind::Ccs: return routing.channels[channel].ccs;
+        case MidiOutputKind::Programs: return routing.channels[channel].programs;
+        case MidiOutputKind::Transport:
+        case MidiOutputKind::Clock: break;
     }
     return false;
 }
@@ -308,16 +396,16 @@ void SendRawMidi(Handler& handler, const uint8_t* bytes, size_t size)
 
 void SendToConfiguredOutputs(MidiOutputKind kind, const uint8_t* bytes, size_t size)
 {
-    if(MidiOutputEnabled(app_state.midi_routing.usb, kind))
+    if(MidiOutputEnabled(app_state.midi_routing.usb, kind, bytes, size))
         SendRawMidi(usb_midi, bytes, size);
-    if(MidiOutputEnabled(app_state.midi_routing.uart, kind))
+    if(MidiOutputEnabled(app_state.midi_routing.uart, kind, bytes, size))
         SendRawMidi(uart_midi, bytes, size);
 }
 
 void SendToDestinationOutput(bool to_usb, MidiOutputKind kind, const uint8_t* bytes, size_t size)
 {
     const MidiOutputRouting& routing = to_usb ? app_state.midi_routing.usb : app_state.midi_routing.uart;
-    if(!MidiOutputEnabled(routing, kind))
+    if(!MidiOutputEnabled(routing, kind, bytes, size))
         return;
     if(to_usb)
         SendRawMidi(usb_midi, bytes, size);
@@ -327,16 +415,27 @@ void SendToDestinationOutput(bool to_usb, MidiOutputKind kind, const uint8_t* by
 
 void SendAllNotesAndSoundOffToConfiguredOutputs()
 {
-    const MidiOutputKind kind = MidiOutputKind::Ccs;
     uint8_t              bytes[3]{};
     bytes[2] = 0;
     for(uint8_t ch = 0; ch < 16; ch++)
     {
+        const bool usb_enabled = app_state.midi_routing.usb.channels[ch].notes
+                                 || app_state.midi_routing.usb.channels[ch].ccs
+                                 || app_state.midi_routing.usb.channels[ch].programs;
+        const bool uart_enabled = app_state.midi_routing.uart.channels[ch].notes
+                                  || app_state.midi_routing.uart.channels[ch].ccs
+                                  || app_state.midi_routing.uart.channels[ch].programs;
         bytes[0] = static_cast<uint8_t>(0xB0 | (ch & 0x0F));
         bytes[1] = 123;
-        SendToConfiguredOutputs(kind, bytes, 3);
+        if(usb_enabled)
+            SendRawMidi(usb_midi, bytes, 3);
+        if(uart_enabled)
+            SendRawMidi(uart_midi, bytes, 3);
         bytes[1] = 120;
-        SendToConfiguredOutputs(kind, bytes, 3);
+        if(usb_enabled)
+            SendRawMidi(usb_midi, bytes, 3);
+        if(uart_enabled)
+            SendRawMidi(uart_midi, bytes, 3);
     }
 }
 
@@ -471,9 +570,45 @@ bool MidiEvToRawBytes(const MidiEv& ev, uint8_t out[3], size_t& size, MidiOutput
     return false;
 }
 
+bool EnqueueScheduledMidiOutPacket(const ScheduledMidiOutPacket& packet)
+{
+    ScopedIrqBlocker lock;
+    const size_t     next = (scheduled_midi_out_head + 1) % kScheduledMidiOutQueueSize;
+    if(next == scheduled_midi_out_tail)
+        return false;
+    scheduled_midi_out_queue[scheduled_midi_out_head] = packet;
+    scheduled_midi_out_head                           = next;
+    return true;
+}
+
+bool DequeueScheduledMidiOutPacket(ScheduledMidiOutPacket& packet)
+{
+    ScopedIrqBlocker lock;
+    if(scheduled_midi_out_tail == scheduled_midi_out_head)
+        return false;
+    packet                  = scheduled_midi_out_queue[scheduled_midi_out_tail];
+    scheduled_midi_out_tail = (scheduled_midi_out_tail + 1) % kScheduledMidiOutQueueSize;
+    return true;
+}
+
 void ForwardScheduledMidiOut(const MidiEv& ev, void*)
 {
     UpdateMidiMonitor(ev);
+    if(ScheduledMidiOutputBlocked(ev))
+        return;
+
+    ScheduledMidiOutPacket packet{};
+    packet.at_sample = static_cast<uint32_t>(ev.atSample);
+    packet.type      = ev.type;
+    packet.ch        = ev.ch;
+    packet.a         = ev.a;
+    packet.b         = ev.b;
+    size_t size = 0;
+    if(MidiEvToRawBytes(ev, packet.bytes, size, packet.kind))
+    {
+        packet.size = static_cast<uint8_t>(size);
+        EnqueueScheduledMidiOutPacket(packet);
+    }
 }
 
 bool ScheduledMidiOutputBlocked(const MidiEv& ev)
@@ -495,42 +630,23 @@ bool ScheduledMidiOutputBlocked(const MidiEv& ev)
     return false;
 }
 
-MidiEv PrepareScheduledMidiOutput(MidiEv ev)
-{
-    if((ev.type == EvType::NoteOn || ev.type == EvType::NoteOff) && ev.ch != 9)
-    {
-        int note = static_cast<int>(ev.a) + app_state.sf2_transpose;
-        if(note < 0)
-            note = 0;
-        if(note > 127)
-            note = 127;
-        ev.a = static_cast<uint8_t>(note);
-    }
-
-    if(ev.type == EvType::Program && ev.ch < 16 && app_state.channels[ev.ch].program_override >= 0)
-        ev.a = static_cast<uint8_t>(app_state.channels[ev.ch].program_override);
-
-    if(ev.type == EvType::ControlChange && ev.a == 11)
-        ev.b = static_cast<uint8_t>((uint16_t(ev.b) * uint16_t(app_state.sf2_expression_max)) / 127u);
-
-    return ev;
-}
-
 void FlushScheduledMidiOut()
 {
-    const uint64_t due_sample = transport.SampleClock() + hw.AudioBlockSize();
-    MidiEv         ev{};
-    while(transport.PopDueMidiOutputEvent(due_sample, ev))
+    ScheduledMidiOutPacket packet{};
+    while(DequeueScheduledMidiOutPacket(packet))
     {
-        if(ScheduledMidiOutputBlocked(ev))
-            continue;
-
-        MidiEv actual = PrepareScheduledMidiOutput(ev);
-        uint8_t        bytes[3]{};
-        size_t         size = 0;
-        MidiOutputKind kind = MidiOutputKind::Notes;
-        if(MidiEvToRawBytes(actual, bytes, size, kind))
-            SendToConfiguredOutputs(kind, bytes, size);
+        if(kEnableUsbLog && packet.ch == 9
+           && (packet.type == EvType::NoteOn || packet.type == EvType::NoteOff))
+        {
+            LOG("MDBG OUT at=%lu now=%lu t=%s ch=%u a=%u b=%u",
+                static_cast<unsigned long>(packet.at_sample),
+                static_cast<unsigned long>(transport.SampleClock()),
+                DebugTraceTypeName(packet.type),
+                static_cast<unsigned>(packet.ch + 1),
+                static_cast<unsigned>(packet.a),
+                static_cast<unsigned>(packet.b));
+        }
+        SendToConfiguredOutputs(packet.kind, packet.bytes, packet.size);
     }
 }
 
@@ -1161,6 +1277,7 @@ int main(void)
     smf_player.SetTempoScale(1.0f);
     transport.Init(hw.AudioSampleRate(), smf_player);
     transport.SetMidiOutputCallback(ForwardScheduledMidiOut, nullptr);
+    transport.SetDebugMidiCallback(DebugMidiTrace, nullptr);
     cv_gate_engine.Init(hw, hw.AudioSampleRate());
     midi_clock_sync.Init(hw.AudioSampleRate(), ClockSync::PulseMode::MIDI_24PPQN);
     midi_clock_sync.SetUseExternalClock(true);
@@ -1325,6 +1442,8 @@ int main(void)
 
         if(audio_started)
             transport.Update(effective_state);
+
+        FlushScheduledMidiOut();
 
         if(audio_started && effective_state.transport_playing && !transport.IsPlaying())
         {
