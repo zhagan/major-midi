@@ -90,7 +90,8 @@ enum class MidiOutputKind : uint8_t
 struct ScheduledMidiOutPacket
 {
     uint32_t       at_sample = 0;
-    MidiOutputKind kind      = MidiOutputKind::Notes;
+    bool           send_usb  = false;
+    bool           send_uart = false;
     uint8_t        bytes[3]{};
     uint8_t        size = 0;
     EvType         type = EvType::NoteOn;
@@ -604,8 +605,13 @@ void ForwardScheduledMidiOut(const MidiEv& ev, void*)
     packet.a         = ev.a;
     packet.b         = ev.b;
     size_t size = 0;
-    if(MidiEvToRawBytes(ev, packet.bytes, size, packet.kind))
+    MidiOutputKind kind = MidiOutputKind::Notes;
+    if(MidiEvToRawBytes(ev, packet.bytes, size, kind))
     {
+        packet.send_usb  = MidiOutputEnabled(app_state.midi_routing.usb, kind, packet.bytes, size);
+        packet.send_uart = MidiOutputEnabled(app_state.midi_routing.uart, kind, packet.bytes, size);
+        if(!packet.send_usb && !packet.send_uart)
+            return;
         packet.size = static_cast<uint8_t>(size);
         EnqueueScheduledMidiOutPacket(packet);
     }
@@ -646,7 +652,10 @@ void FlushScheduledMidiOut()
                 static_cast<unsigned>(packet.a),
                 static_cast<unsigned>(packet.b));
         }
-        SendToConfiguredOutputs(packet.kind, packet.bytes, packet.size);
+        if(packet.send_usb)
+            SendRawMidi(usb_midi, packet.bytes, packet.size);
+        if(packet.send_uart)
+            SendRawMidi(uart_midi, packet.bytes, packet.size);
     }
 }
 

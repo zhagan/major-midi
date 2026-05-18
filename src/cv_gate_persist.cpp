@@ -6,10 +6,11 @@ namespace major_midi
 namespace
 {
 static constexpr uint8_t kMagic[4]   = {'M', 'M', 'C', 'V'};
-static constexpr uint8_t kVersion    = 3;
+static constexpr uint8_t kVersion    = 4;
 static constexpr size_t  kFileSizeV1 = 25;
 static constexpr size_t  kFileSizeV2 = 27;
-static constexpr size_t  kFileSize   = 29;
+static constexpr size_t  kFileSizeV3 = 29;
+static constexpr size_t  kFileSize   = 31;
 
 void WriteConfig(uint8_t* out, const CvGateConfig& config)
 {
@@ -37,6 +38,7 @@ void WriteConfig(uint8_t* out, const CvGateConfig& config)
     {
         out[offset++] = static_cast<uint8_t>(config.gate_out[i].mode);
         out[offset++] = config.gate_out[i].channel;
+        out[offset++] = static_cast<uint8_t>(config.gate_out[i].trigger_mode);
         out[offset++] = static_cast<uint8_t>(config.gate_out[i].sync_resolution);
     }
 
@@ -52,7 +54,7 @@ void WriteConfig(uint8_t* out, const CvGateConfig& config)
 bool ReadConfig(const uint8_t* in, CvGateConfig& config)
 {
     if(in[0] != kMagic[0] || in[1] != kMagic[1] || in[2] != kMagic[2]
-       || in[3] != kMagic[3] || (in[4] != 1 && in[4] != kVersion))
+       || in[3] != kMagic[3] || in[4] < 1 || in[4] > kVersion)
         return false;
 
     size_t offset = 5;
@@ -93,11 +95,14 @@ bool ReadConfig(const uint8_t* in, CvGateConfig& config)
     {
         config.gate_out[i].mode            = static_cast<GateOutMode>(in[offset++]);
         config.gate_out[i].channel         = in[offset++];
+        config.gate_out[i].trigger_mode    = in[4] >= 4 ? static_cast<GateTriggerMode>(in[offset++])
+                                                        : GateTriggerMode::Legato;
         config.gate_out[i].sync_resolution = static_cast<SyncResolution>(in[offset++]);
         if(static_cast<int>(config.gate_out[i].mode) < 0
            || config.gate_out[i].mode > GateOutMode::ChannelGate)
             return false;
         if(config.gate_out[i].channel > 15
+           || config.gate_out[i].trigger_mode > GateTriggerMode::Retrig
            || config.gate_out[i].sync_resolution > SyncResolution::Div64)
             return false;
     }
@@ -131,7 +136,8 @@ bool LoadCvGateConfig(const char* path, CvGateConfig& config)
     const FRESULT read_result  = f_read(&file, data, kFileSize, &read);
     const FRESULT close_result = f_close(&file);
     if(read_result != FR_OK || close_result != FR_OK
-       || (read != kFileSize && read != kFileSizeV2 && read != kFileSizeV1))
+       || (read != kFileSize && read != kFileSizeV3 && read != kFileSizeV2
+           && read != kFileSizeV1))
         return false;
 
     return ReadConfig(data, config);

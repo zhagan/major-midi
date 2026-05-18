@@ -47,6 +47,7 @@ void MixerTransport::Reset(const AppState& state)
     std::memset(note_refcount_, 0, sizeof(note_refcount_));
     std::memset(cc_value_, 0, sizeof(cc_value_));
     std::memset(active_note_count_, 0, sizeof(active_note_count_));
+    std::memset(note_on_count_, 0, sizeof(note_on_count_));
     for(size_t ch = 0; ch < 16; ch++)
     {
         highest_note_[ch] = -1;
@@ -187,6 +188,11 @@ int MixerTransport::ChannelPitchNote(uint8_t ch, NotePriority priority) const
     return priority == NotePriority::Highest ? highest_note_[ch] : lowest_note_[ch];
 }
 
+uint32_t MixerTransport::ChannelNoteOnCounter(uint8_t ch) const
+{
+    return ch < 16 ? note_on_count_[ch] : 0u;
+}
+
 uint8_t MixerTransport::ChannelCcValue(uint8_t ch, uint8_t cc) const
 {
     return (ch < 16) ? cc_value_[ch][cc] : 0;
@@ -320,6 +326,7 @@ void MixerTransport::UpdateNoteState(const MidiEv& ev)
         case EvType::NoteOn:
             if(ev.b == 0)
                 break;
+            note_on_count_[ev.ch]++;
             if(note_refcount_[ev.ch][ev.a] == 0)
             {
                 active_note_count_[ev.ch]++;
@@ -617,6 +624,7 @@ void MixerTransport::FlushLoopBoundaryNotes()
 
     std::memset(note_refcount_, 0, sizeof(note_refcount_));
     std::memset(active_note_count_, 0, sizeof(active_note_count_));
+    std::memset(note_on_count_, 0, sizeof(note_on_count_));
     for(size_t ch = 0; ch < 16; ch++)
     {
         highest_note_[ch] = -1;
@@ -770,6 +778,7 @@ void MixerTransport::StartPlayback(const AppState& state)
     std::memset(note_refcount_, 0, sizeof(note_refcount_));
     std::memset(cc_value_, 0, sizeof(cc_value_));
     std::memset(active_note_count_, 0, sizeof(active_note_count_));
+    std::memset(note_on_count_, 0, sizeof(note_on_count_));
     for(size_t ch = 0; ch < 16; ch++)
     {
         highest_note_[ch] = -1;
@@ -822,6 +831,7 @@ void MixerTransport::StopPlayback(const AppState& state)
     std::memset(current_program_, 0, sizeof(current_program_));
     std::memset(note_refcount_, 0, sizeof(note_refcount_));
     std::memset(active_note_count_, 0, sizeof(active_note_count_));
+    std::memset(note_on_count_, 0, sizeof(note_on_count_));
     for(size_t ch = 0; ch < 16; ch++)
     {
         highest_note_[ch] = -1;

@@ -95,9 +95,11 @@ enum class CvGateMenuItem : uint8_t
     GateIn2Channel,
     Gate1Mode,
     Gate1Channel,
+    Gate1Trigger,
     Gate1Resolution,
     Gate2Mode,
     Gate2Channel,
+    Gate2Trigger,
     Gate2Resolution,
     CvOut1Mode,
     CvOut1Channel,
@@ -125,6 +127,12 @@ enum class GateOutMode : uint8_t
     SyncOut,
     ResetPulse,
     ChannelGate,
+};
+
+enum class GateTriggerMode : uint8_t
+{
+    Legato,
+    Retrig,
 };
 
 enum class GateInMode : uint8_t
@@ -179,6 +187,7 @@ struct GateOutputConfig
 {
     GateOutMode    mode            = GateOutMode::Off;
     uint8_t        channel         = 0;
+    GateTriggerMode trigger_mode   = GateTriggerMode::Legato;
     SyncResolution sync_resolution = SyncResolution::Div16;
 };
 
@@ -453,6 +462,16 @@ inline const char* GateInModeName(GateInMode mode)
     return "";
 }
 
+inline const char* GateTriggerModeName(GateTriggerMode mode)
+{
+    switch(mode)
+    {
+        case GateTriggerMode::Legato: return "Legato";
+        case GateTriggerMode::Retrig: return "Retrig";
+    }
+    return "";
+}
+
 inline const char* CvOutModeName(CvOutMode mode)
 {
     switch(mode)
@@ -513,6 +532,11 @@ inline bool GateOutModeNeedsResolution(GateOutMode mode)
     return mode == GateOutMode::SyncOut;
 }
 
+inline bool GateOutModeNeedsTrigger(GateOutMode mode)
+{
+    return mode == GateOutMode::ChannelGate;
+}
+
 inline bool CvOutModeNeedsChannel(CvOutMode mode)
 {
     return mode == CvOutMode::ChannelPitch || mode == CvOutMode::ChannelCc;
@@ -539,20 +563,29 @@ inline size_t CvGateVisibleItemCount(const CvGateConfig& config)
     add(); // CV1 Mode
     add(CvInModeNeedsChannel(config.cv_in[0].mode));
     add(CvInModeNeedsCc(config.cv_in[0].mode));
+    add(); // CV2 Mode
+    add(CvInModeNeedsChannel(config.cv_in[1].mode));
+    add(CvInModeNeedsCc(config.cv_in[1].mode));
     add(); // In1 Mode
     add(GateInModeNeedsChannel(config.gate_in[0].mode));
     add(); // In2 Mode
     add(GateInModeNeedsChannel(config.gate_in[1].mode));
     add(); // Out1 Mode
     add(GateOutModeNeedsChannel(config.gate_out[0].mode));
+    add(GateOutModeNeedsTrigger(config.gate_out[0].mode));
     add(GateOutModeNeedsResolution(config.gate_out[0].mode));
     add(); // Out2 Mode
     add(GateOutModeNeedsChannel(config.gate_out[1].mode));
+    add(GateOutModeNeedsTrigger(config.gate_out[1].mode));
     add(GateOutModeNeedsResolution(config.gate_out[1].mode));
     add(); // O1 Mode
     add(CvOutModeNeedsChannel(config.cv_out[0].mode));
     add(CvOutModeNeedsCc(config.cv_out[0].mode));
     add(CvOutModeNeedsPriority(config.cv_out[0].mode));
+    add(); // O2 Mode
+    add(CvOutModeNeedsChannel(config.cv_out[1].mode));
+    add(CvOutModeNeedsCc(config.cv_out[1].mode));
+    add(CvOutModeNeedsPriority(config.cv_out[1].mode));
     return count;
 }
 
@@ -574,6 +607,12 @@ inline CvGateMenuItem CvGateVisibleItemAt(const CvGateConfig& config, size_t vis
         return CvGateMenuItem::Cv1Channel;
     if(match(CvGateMenuItem::Cv1Cc, CvInModeNeedsCc(config.cv_in[0].mode)))
         return CvGateMenuItem::Cv1Cc;
+    if(match(CvGateMenuItem::Cv2Mode))
+        return CvGateMenuItem::Cv2Mode;
+    if(match(CvGateMenuItem::Cv2Channel, CvInModeNeedsChannel(config.cv_in[1].mode)))
+        return CvGateMenuItem::Cv2Channel;
+    if(match(CvGateMenuItem::Cv2Cc, CvInModeNeedsCc(config.cv_in[1].mode)))
+        return CvGateMenuItem::Cv2Cc;
     if(match(CvGateMenuItem::GateIn1Mode))
         return CvGateMenuItem::GateIn1Mode;
     if(match(CvGateMenuItem::GateIn1Channel, GateInModeNeedsChannel(config.gate_in[0].mode)))
@@ -587,6 +626,9 @@ inline CvGateMenuItem CvGateVisibleItemAt(const CvGateConfig& config, size_t vis
     if(match(CvGateMenuItem::Gate1Channel,
              GateOutModeNeedsChannel(config.gate_out[0].mode)))
         return CvGateMenuItem::Gate1Channel;
+    if(match(CvGateMenuItem::Gate1Trigger,
+             GateOutModeNeedsTrigger(config.gate_out[0].mode)))
+        return CvGateMenuItem::Gate1Trigger;
     if(match(CvGateMenuItem::Gate1Resolution,
              GateOutModeNeedsResolution(config.gate_out[0].mode)))
         return CvGateMenuItem::Gate1Resolution;
@@ -595,6 +637,9 @@ inline CvGateMenuItem CvGateVisibleItemAt(const CvGateConfig& config, size_t vis
     if(match(CvGateMenuItem::Gate2Channel,
              GateOutModeNeedsChannel(config.gate_out[1].mode)))
         return CvGateMenuItem::Gate2Channel;
+    if(match(CvGateMenuItem::Gate2Trigger,
+             GateOutModeNeedsTrigger(config.gate_out[1].mode)))
+        return CvGateMenuItem::Gate2Trigger;
     if(match(CvGateMenuItem::Gate2Resolution,
              GateOutModeNeedsResolution(config.gate_out[1].mode)))
         return CvGateMenuItem::Gate2Resolution;
@@ -608,6 +653,16 @@ inline CvGateMenuItem CvGateVisibleItemAt(const CvGateConfig& config, size_t vis
     if(match(CvGateMenuItem::CvOut1Priority,
              CvOutModeNeedsPriority(config.cv_out[0].mode)))
         return CvGateMenuItem::CvOut1Priority;
+    if(match(CvGateMenuItem::CvOut2Mode))
+        return CvGateMenuItem::CvOut2Mode;
+    if(match(CvGateMenuItem::CvOut2Channel,
+             CvOutModeNeedsChannel(config.cv_out[1].mode)))
+        return CvGateMenuItem::CvOut2Channel;
+    if(match(CvGateMenuItem::CvOut2Cc, CvOutModeNeedsCc(config.cv_out[1].mode)))
+        return CvGateMenuItem::CvOut2Cc;
+    if(match(CvGateMenuItem::CvOut2Priority,
+             CvOutModeNeedsPriority(config.cv_out[1].mode)))
+        return CvGateMenuItem::CvOut2Priority;
     return CvGateMenuItem::Cv1Mode;
 }
 
@@ -622,6 +677,7 @@ inline bool CvGateConfigEqual(const CvGateConfig& a, const CvGateConfig& b)
             return false;
         if(a.gate_out[i].mode != b.gate_out[i].mode
            || a.gate_out[i].channel != b.gate_out[i].channel
+           || a.gate_out[i].trigger_mode != b.gate_out[i].trigger_mode
            || a.gate_out[i].sync_resolution != b.gate_out[i].sync_resolution)
             return false;
         if(a.cv_out[i].mode != b.cv_out[i].mode

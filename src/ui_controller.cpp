@@ -1068,6 +1068,12 @@ void UiController::AdjustMenuValue(int32_t delta, uint32_t now_ms)
                                  0,
                                  15));
                     break;
+                case CvGateMenuItem::Gate1Trigger:
+                    cv_gate.gate_out[0].trigger_mode
+                        = cv_gate.gate_out[0].trigger_mode == GateTriggerMode::Legato
+                              ? GateTriggerMode::Retrig
+                              : GateTriggerMode::Legato;
+                    break;
                 case CvGateMenuItem::Gate1Resolution:
                     cv_gate.gate_out[0].sync_resolution = static_cast<SyncResolution>(
                         ClampInt(static_cast<int>(cv_gate.gate_out[0].sync_resolution)
@@ -1086,6 +1092,12 @@ void UiController::AdjustMenuValue(int32_t delta, uint32_t now_ms)
                         ClampInt(static_cast<int>(cv_gate.gate_out[1].channel) + (delta > 0 ? 1 : -1),
                                  0,
                                  15));
+                    break;
+                case CvGateMenuItem::Gate2Trigger:
+                    cv_gate.gate_out[1].trigger_mode
+                        = cv_gate.gate_out[1].trigger_mode == GateTriggerMode::Legato
+                              ? GateTriggerMode::Retrig
+                              : GateTriggerMode::Legato;
                     break;
                 case CvGateMenuItem::Gate2Resolution:
                     cv_gate.gate_out[1].sync_resolution = static_cast<SyncResolution>(

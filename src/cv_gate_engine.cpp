@@ -140,6 +140,10 @@ void CvGateEngine::Init(DaisyPatchSM& hw, float sample_rate)
         active_gate_note_[i]    = 0;
         active_gate_channel_[i] = 0;
         gate_note_active_[i]    = false;
+        held_pitch_note_[i]     = -1;
+        last_gate_note_on_counter_[i] = 0;
+        last_gate_channel_active_[i]  = false;
+        gate_retrigger_low_pending_[i] = false;
         gate_out_pulse_remaining_[i] = 0;
     }
 }
@@ -156,11 +160,17 @@ int CvGateEngine::EffectiveBpm(const AppState& state) const
     return live_bpm_ > 0 ? live_bpm_ : state.bpm;
 }
 
-float CvGateEngine::PitchVoltageForChannel(const MixerTransport& transport,
-                                           const CvOutputConfig& config) const
+float CvGateEngine::PitchVoltageForChannel(size_t                output_index,
+                                           const MixerTransport& transport,
+                                           const CvOutputConfig& config,
+                                           bool                  playing)
 {
     const int note = transport.ChannelPitchNote(config.channel, config.priority);
-    return MidiNoteToVoltage(note);
+    if(note >= 0)
+        held_pitch_note_[output_index] = static_cast<int8_t>(note);
+    else if(!playing)
+        held_pitch_note_[output_index] = -1;
+    return MidiNoteToVoltage(held_pitch_note_[output_index]);
 }
 
 float CvGateEngine::CcVoltageForChannel(const MixerTransport& transport,
@@ -256,13 +266,17 @@ void CvGateEngine::Update(const AppState& state, MixerTransport& transport)
 
     live_bpm_ = 0;
 
-    for(size_t i = 0; i < 1; i++)
+    bool master_volume_applied = false;
+    for(size_t i = 0; i < 2; i++)
     {
         const float cv_value = ReadCvInput(i);
         switch(state.cv_gate.cv_in[i].mode)
         {
             case CvInMode::Off: break;
-            case CvInMode::MasterVolume: SynthSetExternalGain(cv_value); break;
+            case CvInMode::MasterVolume:
+                SynthSetExternalGain(cv_value);
+                master_volume_applied = true;
+                break;
             case CvInMode::Bpm:
                 live_bpm_ = static_cast<int>(std::lround(kCvInMinBpm
                                                          + cv_value * (kCvInMaxBpm - kCvInMinBpm)));
@@ -282,7 +296,7 @@ void CvGateEngine::Update(const AppState& state, MixerTransport& transport)
         }
     }
 
-    if(state.cv_gate.cv_in[0].mode != CvInMode::MasterVolume)
+    if(!master_volume_applied)
     {
         SynthSetExternalGain(1.0f);
     }
@@ -339,6 +353,16 @@ void CvGateEngine::Update(const AppState& state, MixerTransport& transport)
     const bool     wrapped_block
         = loop_length_samples > 0 && block_end_tick < block_start_tick;
     const bool playing = state.transport_playing;
+    if(!playing)
+    {
+        for(size_t i = 0; i < 2; i++)
+        {
+            held_pitch_note_[i]            = -1;
+            gate_retrigger_low_pending_[i] = false;
+            last_gate_channel_active_[i]   = false;
+            last_gate_note_on_counter_[i]  = 0;
+        }
+    }
     const int  ts_num  = transport.TimeSigNumerator();
     const int  ts_den  = transport.TimeSigDenominator();
     const uint16_t divisions = transport.Divisions();
@@ -436,21 +460,52 @@ void CvGateEngine::Update(const AppState& state, MixerTransport& transport)
                 }
                 break;
             case GateOutMode::ChannelGate:
-                gate_high = transport.ChannelGateActive(state.cv_gate.gate_out[i].channel);
+            {
+                const uint8_t channel = state.cv_gate.gate_out[i].channel;
+                const bool active = transport.ChannelGateActive(channel);
+                if(state.cv_gate.gate_out[i].trigger_mode == GateTriggerMode::Retrig)
+                {
+                    const uint32_t note_on_counter = transport.ChannelNoteOnCounter(channel);
+                    const bool counter_changed = note_on_counter != last_gate_note_on_counter_[i];
+                    if(counter_changed)
+                    {
+                        if(active && last_gate_channel_active_[i])
+                            gate_retrigger_low_pending_[i] = true;
+                        last_gate_note_on_counter_[i] = note_on_counter;
+                    }
+
+                    if(gate_retrigger_low_pending_[i])
+                    {
+                        gate_high = false;
+                        gate_retrigger_low_pending_[i] = false;
+                    }
+                    else
+                    {
+                        gate_high = active;
+                    }
+                    last_gate_channel_active_[i] = active;
+                }
+                else
+                {
+                    gate_high = active;
+                    last_gate_channel_active_[i] = active;
+                    last_gate_note_on_counter_[i] = transport.ChannelNoteOnCounter(channel);
+                }
+            }
                 break;
         }
 
         dsy_gpio_write(i == 0 ? &hw_->gate_out_1 : &hw_->gate_out_2, gate_high);
     }
 
-    for(size_t i = 0; i < 1; i++)
+    for(size_t i = 0; i < 2; i++)
     {
         float voltage = 0.0f;
         switch(state.cv_gate.cv_out[i].mode)
         {
             case CvOutMode::Off: voltage = 0.0f; break;
             case CvOutMode::ChannelPitch:
-                voltage = PitchVoltageForChannel(transport, state.cv_gate.cv_out[i]);
+                voltage = PitchVoltageForChannel(i, transport, state.cv_gate.cv_out[i], playing);
                 break;
             case CvOutMode::ChannelCc:
                 voltage = CcVoltageForChannel(transport, state.cv_gate.cv_out[i]);

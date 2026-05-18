@@ -35,6 +35,7 @@ class MixerTransport
     bool ChannelGateActive(uint8_t ch) const;
     bool AnyChannelGateActive() const;
     int  ChannelPitchNote(uint8_t ch, NotePriority priority) const;
+    uint32_t ChannelNoteOnCounter(uint8_t ch) const;
     uint8_t ChannelCcValue(uint8_t ch, uint8_t cc) const;
     uint8_t ChannelProgram(uint8_t ch) const;
     int TimeSigNumerator() const;
@@ -133,6 +134,7 @@ class MixerTransport
     uint8_t            cc_value_[16][128]{};
     uint8_t            current_program_[16]{};
     uint8_t            active_note_count_[16]{};
+    uint32_t           note_on_count_[16]{};
     int8_t             highest_note_[16]{};
     int8_t             lowest_note_[16]{};
     volatile uint64_t  loop_end_sample_   = UINT64_MAX;

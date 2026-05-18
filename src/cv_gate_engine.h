@@ -16,8 +16,10 @@ class CvGateEngine
 
   private:
     float ReadCvInput(size_t index) const;
-    float PitchVoltageForChannel(const MixerTransport& transport,
-                                 const CvOutputConfig& config) const;
+    float PitchVoltageForChannel(size_t                output_index,
+                                 const MixerTransport& transport,
+                                 const CvOutputConfig& config,
+                                 bool                  playing);
     float CcVoltageForChannel(const MixerTransport& transport,
                               const CvOutputConfig& config) const;
     bool  SyncGateHigh(uint64_t cycle_sample,
@@ -44,6 +46,10 @@ class CvGateEngine
     uint8_t                        active_gate_note_[2]{};
     uint8_t                        active_gate_channel_[2]{};
     bool                           gate_note_active_[2]{};
+    int8_t                         held_pitch_note_[2]{};
+    uint32_t                       last_gate_note_on_counter_[2]{};
+    bool                           last_gate_channel_active_[2]{};
+    bool                           gate_retrigger_low_pending_[2]{};
     uint32_t                       gate_out_pulse_remaining_[2]{};
 };
 

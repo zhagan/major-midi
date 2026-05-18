@@ -342,23 +342,23 @@ void UiRenderer::Render(const AppState& state,
                     case CvGateMenuItem::GateIn2Channel: std::snprintf(line, sizeof(line), "%cIn2 Ch %02d", item == state.menu_page_cursor ? '>' : ' ', static_cast<int>(state.cv_gate.gate_in[1].channel) + 1); break;
                     case CvGateMenuItem::Gate1Mode: std::snprintf(line, sizeof(line), "%cOut1 Mode %s", item == state.menu_page_cursor ? '>' : ' ', GateOutModeName(state.cv_gate.gate_out[0].mode)); break;
                     case CvGateMenuItem::Gate1Channel: std::snprintf(line, sizeof(line), "%cOut1 Ch %02d", item == state.menu_page_cursor ? '>' : ' ', static_cast<int>(state.cv_gate.gate_out[0].channel) + 1); break;
+                    case CvGateMenuItem::Gate1Trigger: std::snprintf(line, sizeof(line), "%cOut1 Trg %s", item == state.menu_page_cursor ? '>' : ' ', GateTriggerModeName(state.cv_gate.gate_out[0].trigger_mode)); break;
                     case CvGateMenuItem::Gate1Resolution: std::snprintf(line, sizeof(line), "%cOut1 Res %s", item == state.menu_page_cursor ? '>' : ' ', SyncResolutionName(state.cv_gate.gate_out[0].sync_resolution)); break;
                     case CvGateMenuItem::Gate2Mode: std::snprintf(line, sizeof(line), "%cOut2 Mode %s", item == state.menu_page_cursor ? '>' : ' ', GateOutModeName(state.cv_gate.gate_out[1].mode)); break;
                     case CvGateMenuItem::Gate2Channel: std::snprintf(line, sizeof(line), "%cOut2 Ch %02d", item == state.menu_page_cursor ? '>' : ' ', static_cast<int>(state.cv_gate.gate_out[1].channel) + 1); break;
+                    case CvGateMenuItem::Gate2Trigger: std::snprintf(line, sizeof(line), "%cOut2 Trg %s", item == state.menu_page_cursor ? '>' : ' ', GateTriggerModeName(state.cv_gate.gate_out[1].trigger_mode)); break;
                     case CvGateMenuItem::Gate2Resolution: std::snprintf(line, sizeof(line), "%cOut2 Res %s", item == state.menu_page_cursor ? '>' : ' ', SyncResolutionName(state.cv_gate.gate_out[1].sync_resolution)); break;
                     case CvGateMenuItem::CvOut1Mode: std::snprintf(line, sizeof(line), "%cO1 Mode %s", item == state.menu_page_cursor ? '>' : ' ', CvOutModeName(state.cv_gate.cv_out[0].mode)); break;
                     case CvGateMenuItem::CvOut1Channel: std::snprintf(line, sizeof(line), "%cO1 Ch %02d", item == state.menu_page_cursor ? '>' : ' ', static_cast<int>(state.cv_gate.cv_out[0].channel) + 1); break;
                     case CvGateMenuItem::CvOut1Cc: std::snprintf(line, sizeof(line), "%cO1 CC %03d", item == state.menu_page_cursor ? '>' : ' ', static_cast<int>(state.cv_gate.cv_out[0].cc)); break;
                     case CvGateMenuItem::CvOut1Priority: std::snprintf(line, sizeof(line), "%cO1 Pri %s", item == state.menu_page_cursor ? '>' : ' ', NotePriorityName(state.cv_gate.cv_out[0].priority)); break;
-                    case CvGateMenuItem::Cv2Mode:
-                    case CvGateMenuItem::Cv2Channel:
-                    case CvGateMenuItem::Cv2Cc:
-                    case CvGateMenuItem::CvOut2Mode:
-                    case CvGateMenuItem::CvOut2Channel:
-                    case CvGateMenuItem::CvOut2Cc:
-                    case CvGateMenuItem::CvOut2Priority:
-                        line[0] = '\0';
-                        break;
+                    case CvGateMenuItem::Cv2Mode: std::snprintf(line, sizeof(line), "%cCV2 Mode %s", item == state.menu_page_cursor ? '>' : ' ', CvInModeName(state.cv_gate.cv_in[1].mode)); break;
+                    case CvGateMenuItem::Cv2Channel: std::snprintf(line, sizeof(line), "%cCV2 Ch %02d", item == state.menu_page_cursor ? '>' : ' ', static_cast<int>(state.cv_gate.cv_in[1].channel) + 1); break;
+                    case CvGateMenuItem::Cv2Cc: std::snprintf(line, sizeof(line), "%cCV2 CC %03d", item == state.menu_page_cursor ? '>' : ' ', static_cast<int>(state.cv_gate.cv_in[1].cc)); break;
+                    case CvGateMenuItem::CvOut2Mode: std::snprintf(line, sizeof(line), "%cO2 Mode %s", item == state.menu_page_cursor ? '>' : ' ', CvOutModeName(state.cv_gate.cv_out[1].mode)); break;
+                    case CvGateMenuItem::CvOut2Channel: std::snprintf(line, sizeof(line), "%cO2 Ch %02d", item == state.menu_page_cursor ? '>' : ' ', static_cast<int>(state.cv_gate.cv_out[1].channel) + 1); break;
+                    case CvGateMenuItem::CvOut2Cc: std::snprintf(line, sizeof(line), "%cO2 CC %03d", item == state.menu_page_cursor ? '>' : ' ', static_cast<int>(state.cv_gate.cv_out[1].cc)); break;
+                    case CvGateMenuItem::CvOut2Priority: std::snprintf(line, sizeof(line), "%cO2 Pri %s", item == state.menu_page_cursor ? '>' : ' ', NotePriorityName(state.cv_gate.cv_out[1].priority)); break;
                 }
             }
             else if(state.menu_page == MenuPage::Midi)
