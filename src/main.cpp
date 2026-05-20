@@ -58,6 +58,7 @@ ClockSync         midi_clock_sync;
 ClockSync         gate_clock_sync;
 TimerHandle       midi_tx_timer;
 bool              audio_started = false;
+bool              uart_rx_suspended_for_playback = false;
 uint8_t           applied_sf2_max_voices = 0;
 uint32_t          channel_flash_until[16]{};
 uint32_t          channel_monitor_until[16]{};
@@ -659,6 +660,11 @@ void FlushScheduledMidiOut()
     }
 }
 
+inline void ServiceMidiOutputs()
+{
+    uart_midi.ServiceOutput();
+}
+
 void MidiTxTimerCallback(void*)
 {
     pending_midi_tx_flushes++;
@@ -772,30 +778,50 @@ void ServiceIncomingMidi()
         transport.HandleMidiMessage(msg, app_state);
     }
 
-    uart_midi.Listen();
-    while(uart_midi.HasEvents())
+    if(!uart_rx_suspended_for_playback)
     {
-        const auto msg = uart_midi.PopEvent();
-        if(msg.type == MidiMessageType::SystemRealTime)
+        uart_midi.Listen();
+        while(uart_midi.HasEvents())
         {
-            switch(msg.srt_type)
+            const auto msg = uart_midi.PopEvent();
+            if(msg.type == MidiMessageType::SystemRealTime)
             {
-                case SystemRealTimeType::TimingClock: pending_midi_clock_edges++; break;
-                case SystemRealTimeType::Start:
-                case SystemRealTimeType::Continue:
-                    if(app_state.sync_external)
-                        app_state.transport_playing = true;
-                    break;
-                case SystemRealTimeType::Stop:
-                    if(app_state.sync_external)
-                        app_state.transport_playing = false;
-                    break;
-                default: break;
+                switch(msg.srt_type)
+                {
+                    case SystemRealTimeType::TimingClock: pending_midi_clock_edges++; break;
+                    case SystemRealTimeType::Start:
+                    case SystemRealTimeType::Continue:
+                        if(app_state.sync_external)
+                            app_state.transport_playing = true;
+                        break;
+                    case SystemRealTimeType::Stop:
+                        if(app_state.sync_external)
+                            app_state.transport_playing = false;
+                        break;
+                    default: break;
+                }
             }
+            UpdateMidiMonitor(msg);
+            MaybeForwardThru(msg, false);
+            transport.HandleMidiMessage(msg, app_state);
         }
-        UpdateMidiMonitor(msg);
-        MaybeForwardThru(msg, false);
-        transport.HandleMidiMessage(msg, app_state);
+    }
+}
+
+void UpdateUartMidiReceiveState(bool transport_playing)
+{
+    if(transport_playing)
+    {
+        if(!uart_rx_suspended_for_playback)
+        {
+            uart_midi.StopReceive();
+            uart_rx_suspended_for_playback = true;
+        }
+    }
+    else if(uart_rx_suspended_for_playback)
+    {
+        uart_midi.StartReceive();
+        uart_rx_suspended_for_playback = false;
     }
 }
 
@@ -1353,9 +1379,12 @@ int main(void)
         {
             pending_midi_tx_flushes = 0;
             FlushScheduledMidiOut();
+            ServiceMidiOutputs();
         }
 
         ui_input.Sample(raw);
+        if(app_state.encoder_direction == EncoderDirection::Reversed)
+            raw.encoder_delta = -raw.encoder_delta;
         app_state.sync_external = raw.sync_external;
         const size_t event_count = ui_events.Translate(raw, now, events, 20);
         for(size_t i = 0; i < event_count; i++)
@@ -1449,10 +1478,13 @@ int main(void)
             effective_state.sync_locked = false;
         }
 
+        UpdateUartMidiReceiveState(effective_state.transport_playing);
+
         if(audio_started)
             transport.Update(effective_state);
 
         FlushScheduledMidiOut();
+        ServiceMidiOutputs();
 
         if(audio_started && effective_state.transport_playing && !transport.IsPlaying())
         {
@@ -1564,15 +1596,18 @@ int main(void)
         if(ui_dirty || (now - render_ms >= render_interval_ms))
         {
             FlushScheduledMidiOut();
+            ServiceMidiOutputs();
             render_ms = now;
             if(screen_saver_active)
                 ui_renderer.RenderScreenSaver(now);
             else
                 ui_renderer.Render(effective_state, media_library, now);
             FlushScheduledMidiOut();
+            ServiceMidiOutputs();
             ui_dirty = false;
         }
 
+        ServiceMidiOutputs();
         hw.SetLed(((now / 250) % 2) != 0);
     }
 }

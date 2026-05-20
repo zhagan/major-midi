@@ -11,11 +11,12 @@ namespace
 {
 static constexpr char    kBootStatePath[] = "0:/major_midi_boot.cfg";
 static constexpr uint8_t kMagic[4]        = {'M', 'M', 'B', 'T'};
-static constexpr uint8_t kVersion         = 2;
+static constexpr uint8_t kVersion         = 3;
 static constexpr size_t  kNameOffset      = 5;
 static constexpr size_t  kTimeoutOffset   = kNameOffset + MediaLibrary::kNameMax;
 static constexpr size_t  kKnobModeOffset  = kTimeoutOffset + 2;
-static constexpr size_t  kFileSize        = kKnobModeOffset + 1;
+static constexpr size_t  kEncoderDirOffset = kKnobModeOffset + 1;
+static constexpr size_t  kFileSize        = kEncoderDirOffset + 1;
 
 uint16_t ReadUint16BE(const uint8_t* data)
 {
@@ -31,6 +32,11 @@ void WriteUint16BE(uint8_t* data, uint16_t value)
 bool ValidKnobPickupMode(uint8_t raw)
 {
     return raw <= static_cast<uint8_t>(KnobPickupMode::Jump);
+}
+
+bool ValidEncoderDirection(uint8_t raw)
+{
+    return raw <= static_cast<uint8_t>(EncoderDirection::Reversed);
 }
 } // namespace
 
@@ -68,6 +74,15 @@ bool LoadBootState(AppState& state, char* midi_name, size_t midi_name_sz)
         state.screen_saver_timeout_s = timeout_s;
         if(ValidKnobPickupMode(data[kKnobModeOffset]))
             state.knob_pickup_mode = static_cast<KnobPickupMode>(data[kKnobModeOffset]);
+        if(ValidEncoderDirection(data[kEncoderDirOffset]))
+            state.encoder_direction = static_cast<EncoderDirection>(data[kEncoderDirOffset]);
+    }
+    else if(version >= 2 && read >= kKnobModeOffset + 1)
+    {
+        const uint16_t timeout_s = ReadUint16BE(data + kTimeoutOffset);
+        state.screen_saver_timeout_s = timeout_s;
+        if(ValidKnobPickupMode(data[kKnobModeOffset]))
+            state.knob_pickup_mode = static_cast<KnobPickupMode>(data[kKnobModeOffset]);
     }
     return midi_name[0] != '\0';
 }
@@ -90,6 +105,7 @@ bool SaveBootState(const AppState& state, const char* midi_name)
     std::memcpy(data + kNameOffset, midi_name, copy_len);
     WriteUint16BE(data + kTimeoutOffset, state.screen_saver_timeout_s);
     data[kKnobModeOffset] = static_cast<uint8_t>(state.knob_pickup_mode);
+    data[kEncoderDirOffset] = static_cast<uint8_t>(state.encoder_direction);
 
     FIL&          file        = SharedPersistFile();
     const FRESULT open_result = f_open(&file, kBootStatePath, FA_CREATE_ALWAYS | FA_WRITE);

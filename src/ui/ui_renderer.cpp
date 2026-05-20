@@ -46,7 +46,7 @@ size_t MenuPageItemCount(const AppState& state, const MediaLibrary& library)
     switch(state.menu_page)
     {
         case MenuPage::Main: return 7;
-        case MenuPage::General: return 2;
+        case MenuPage::General: return 3;
         case MenuPage::Fx: return 5;
         case MenuPage::Song: return 9;
         case MenuPage::Sf2: return 9;
@@ -273,6 +273,7 @@ void UiRenderer::Render(const AppState& state,
                             std::snprintf(line, sizeof(line), "%cSaver %3us", item == state.menu_page_cursor ? '>' : ' ', static_cast<unsigned>(state.screen_saver_timeout_s));
                         break;
                     case 1: std::snprintf(line, sizeof(line), "%cKnobs %s", item == state.menu_page_cursor ? '>' : ' ', KnobPickupModeName(state.knob_pickup_mode)); break;
+                    case 2: std::snprintf(line, sizeof(line), "%cEnc %s", item == state.menu_page_cursor ? '>' : ' ', EncoderDirectionName(state.encoder_direction)); break;
                 }
             }
             else if(state.menu_page == MenuPage::Fx)

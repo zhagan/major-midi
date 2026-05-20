@@ -60,6 +60,12 @@ enum class KnobPickupMode : uint8_t
     Jump,
 };
 
+enum class EncoderDirection : uint8_t
+{
+    Normal,
+    Reversed,
+};
+
 enum class MidiSettingsMenuItem : uint8_t
 {
     OutputChannel,
@@ -298,6 +304,7 @@ struct AppState
     bool         song_loop_enabled       = false;
     uint16_t     screen_saver_timeout_s  = 3600;
     KnobPickupMode knob_pickup_mode      = KnobPickupMode::Pickup;
+    EncoderDirection encoder_direction   = EncoderDirection::Normal;
     float        fx_reverb_time          = 0.85f;
     float        fx_reverb_lpf_hz        = 8000.0f;
     float        fx_reverb_hpf_hz        = 80.0f;
@@ -421,6 +428,16 @@ inline const char* KnobPickupModeName(KnobPickupMode mode)
     {
         case KnobPickupMode::Pickup: return "Pickup";
         case KnobPickupMode::Jump: return "Instant";
+    }
+    return "";
+}
+
+inline const char* EncoderDirectionName(EncoderDirection direction)
+{
+    switch(direction)
+    {
+        case EncoderDirection::Normal: return "Normal";
+        case EncoderDirection::Reversed: return "Reverse";
     }
     return "";
 }

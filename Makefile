@@ -9,26 +9,27 @@ APP_TYPE = BOOT_QSPI
 USE_FATFS = 1
 USE_DAISYSP_LGPL = 1
 
+C_INCLUDES += -Isrc -Isrc/persist -Isrc/midi -Isrc/ui -Isrc/synth -Isrc/cv -Isrc/sd
 
 CPP_SOURCES = \
   src/main.cpp \
-  src/sd_mount.cpp \
-  src/synth_tsf.cpp \
-  src/smf_player.cpp \
-  src/major_midi_settings.cpp \
-  src/media_library.cpp \
+  src/sd/sd_mount.cpp \
+  src/synth/synth_tsf.cpp \
+  src/midi/smf_player.cpp \
+  src/midi/major_midi_settings.cpp \
+  src/midi/media_library.cpp \
   src/clock_sync.cpp \
-  src/boot_state_persist.cpp \
-  src/persist_file.cpp \
-  src/cv_gate_persist.cpp \
-  src/midi_routing_persist.cpp \
-  src/performance_persist.cpp \
-  src/song_config_persist.cpp \
-  src/cv_gate_engine.cpp \
-  src/ui_input.cpp \
-  src/ui_controller.cpp \
-  src/ui_renderer.cpp \
-  src/mixer_transport.cpp
+  src/persist/boot_state_persist.cpp \
+  src/persist/persist_file.cpp \
+  src/persist/cv_gate_persist.cpp \
+  src/persist/midi_routing_persist.cpp \
+  src/persist/performance_persist.cpp \
+  src/persist/song_config_persist.cpp \
+  src/cv/cv_gate_engine.cpp \
+  src/ui/ui_input.cpp \
+  src/ui/ui_controller.cpp \
+  src/ui/ui_renderer.cpp \
+  src/midi/mixer_transport.cpp
 
 LIBDAISY_DIR = ../../libDaisy/
 DAISYSP_DIR  = ../../DaisySP/

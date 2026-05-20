@@ -34,7 +34,7 @@ size_t MenuPageItemCount(const AppState& state, const MediaLibrary& library)
     switch(state.menu_page)
     {
         case MenuPage::Main: return MainMenuItemCount();
-        case MenuPage::General: return 2;
+        case MenuPage::General: return 3;
         case MenuPage::Fx: return 5;
         case MenuPage::Song: return 9;
         case MenuPage::Sf2: return 9;
@@ -757,6 +757,12 @@ void UiController::AdjustMenuValue(int32_t delta, uint32_t now_ms)
                                                    ? KnobPickupMode::Jump
                                                    : KnobPickupMode::Pickup;
                     ResetKnobPickup();
+                    break;
+                case 2:
+                    state_->encoder_direction
+                        = state_->encoder_direction == EncoderDirection::Normal
+                              ? EncoderDirection::Reversed
+                              : EncoderDirection::Normal;
                     break;
                 default: return;
             }
