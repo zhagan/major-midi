@@ -8,8 +8,49 @@ from pathlib import Path
 
 DOCS_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = DOCS_DIR.parent
-README = PROJECT_DIR / "README.md"
-OUTPUT = DOCS_DIR / "index.html"
+SITE_DIR = PROJECT_DIR / "site"
+
+
+def site_source(name: str) -> Path:
+    site_path = SITE_DIR / name
+    if site_path.exists():
+        return site_path
+    return PROJECT_DIR / name
+
+PAGES = [
+    {
+        "source": site_source("SPLASH.md"),
+        "output": DOCS_DIR / "index.html",
+        "label": "Home",
+        "brand_title": "Major MIDI",
+        "hero_title": "Major MIDI",
+        "hero_tagline": "Midi File Player with Soundfount 2 Synth for Eurorack Modular",
+    },
+    {
+        "source": site_source("USER.md"),
+        "output": DOCS_DIR / "user.html",
+        "label": "User Manual",
+        "brand_title": "User Manual",
+        "hero_title": "User Manual",
+        "hero_tagline": "Current operating guide for the Major MIDI firmware.",
+    },
+    {
+        "source": site_source("DEV.md"),
+        "output": DOCS_DIR / "dev.html",
+        "label": "Dev Resources",
+        "brand_title": "Dev Resources",
+        "hero_title": "Dev Resources",
+        "hero_tagline": "Build notes, source map, and development entry points.",
+    },
+    {
+        "source": site_source("ORDER.md"),
+        "output": DOCS_DIR / "order.html",
+        "label": "Order",
+        "brand_title": "Order",
+        "hero_title": "Order Major MIDI",
+        "hero_tagline": "Ordering status, hardware context, and contact path.",
+    },
+]
 
 
 def slugify(text: str) -> str:
@@ -20,8 +61,22 @@ def slugify(text: str) -> str:
 
 def inline_format(text: str) -> str:
     text = html.escape(text)
+    text = re.sub(
+        r"\[([^\]]+)\]\(([^)]+)\)",
+        lambda match: (
+            f'<a href="{html.escape(match.group(2), quote=True)}">'
+            f"{match.group(1)}</a>"
+        ),
+        text,
+    )
     text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
     text = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", text)
+    return text
+
+
+def plain_text(text: str) -> str:
+    text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1", text)
+    text = text.replace("`", "")
     return text
 
 
@@ -68,14 +123,18 @@ def split_blocks(lines: list[str]) -> list[tuple[str, object]]:
         if "|" in stripped and i + 1 < len(lines):
             separator = lines[i + 1].strip()
             if "|" in separator and re.fullmatch(r"[\|\-\:\s]+", separator):
-                header_cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+                header_cells = [
+                    cell.strip() for cell in stripped.strip("|").split("|")
+                ]
                 rows: list[list[str]] = []
                 i += 2
                 while i < len(lines):
                     candidate = lines[i].strip()
                     if not candidate or "|" not in candidate:
                         break
-                    rows.append([cell.strip() for cell in candidate.strip("|").split("|")])
+                    rows.append(
+                        [cell.strip() for cell in candidate.strip("|").split("|")]
+                    )
                     i += 1
                 blocks.append(("table", (header_cells, rows)))
                 continue
@@ -151,10 +210,14 @@ def build_sections(blocks: list[tuple[str, object]]) -> tuple[str, list[tuple[st
         if kind == "paragraph":
             current.append(f"<p>{inline_format(data)}</p>")  # type: ignore[arg-type]
         elif kind == "ulist":
-            items = "".join(f"<li>{inline_format(item)}</li>" for item in data)  # type: ignore[arg-type]
+            items = "".join(
+                f"<li>{inline_format(item)}</li>" for item in data  # type: ignore[arg-type]
+            )
             current.append(f'<ul class="bullets">{items}</ul>')
         elif kind == "olist":
-            items = "".join(f"<li>{inline_format(item)}</li>" for item in data)  # type: ignore[arg-type]
+            items = "".join(
+                f"<li>{inline_format(item)}</li>" for item in data  # type: ignore[arg-type]
+            )
             current.append(f'<ol class="steps">{items}</ol>')
         elif kind == "table":
             headers, rows = data  # type: ignore[misc]
@@ -162,7 +225,10 @@ def build_sections(blocks: list[tuple[str, object]]) -> tuple[str, list[tuple[st
             body_rows = []
             for row in rows:
                 padded = list(row) + [""] * max(0, len(headers) - len(row))
-                cells = "".join(f"<td>{inline_format(cell)}</td>" for cell in padded[: len(headers)])
+                cells = "".join(
+                    f"<td>{inline_format(cell)}</td>"
+                    for cell in padded[: len(headers)]
+                )
                 body_rows.append(f"<tr>{cells}</tr>")
             tbody = "".join(body_rows)
             current.append(
@@ -181,17 +247,43 @@ def build_sections(blocks: list[tuple[str, object]]) -> tuple[str, list[tuple[st
     return "\n".join(sections), nav
 
 
-def build_html(title: str, intro: str, sections_html: str, nav: list[tuple[str, str]]) -> str:
-    nav_html = "\n".join(f'          <a href="#{slug}">{html.escape(text)}</a>' for slug, text in nav)
+def build_html(
+    page: dict[str, object],
+    title: str,
+    intro: str,
+    sections_html: str,
+    nav: list[tuple[str, str]],
+) -> str:
+    del title
+    page_nav = []
+    current_output = Path(page["output"]).name  # type: ignore[arg-type]
+    for item in PAGES:
+        href = html.escape(Path(item["output"]).name)  # type: ignore[arg-type]
+        label = html.escape(str(item["label"]))
+        active = ' class="active"' if href == current_output else ""
+        page_nav.append(f'          <a{active} href="{href}">{label}</a>')
+
+    section_nav = "\n".join(
+        f'          <a href="#{slug}">{html.escape(text)}</a>'
+        for slug, text in nav
+    )
+    source_name = html.escape(Path(page["source"]).name)  # type: ignore[arg-type]
+    brand_title = html.escape(str(page["brand_title"]))
+    hero_title = html.escape(str(page["hero_title"]))
+    hero_tagline = html.escape(str(page["hero_tagline"]))
+    page_title = str(page["hero_title"])
+    if current_output != "index.html":
+        page_title = f"{page_title} | Major MIDI"
+
     return f"""<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{html.escape(title)} Documentation</title>
+    <title>{html.escape(page_title)}</title>
     <meta
       name="description"
-      content="Major MIDI documentation generated from the project README."
+      content="{html.escape(intro)}"
     />
     <link rel="stylesheet" href="./styles.css" />
   </head>
@@ -200,12 +292,17 @@ def build_html(title: str, intro: str, sections_html: str, nav: list[tuple[str, 
       <aside class="sidebar">
         <div class="brand">
           <p class="kicker">Major MIDI</p>
-          <h1>Operator Guide</h1>
-          <p>{html.escape(intro)}</p>
+          <h1>{brand_title}</h1>
         </div>
 
-        <nav class="nav">
-{nav_html}
+        <p class="nav-label">Pages</p>
+        <nav class="nav page-nav">
+{chr(10).join(page_nav)}
+        </nav>
+
+        <p class="nav-label">On This Page</p>
+        <nav class="nav section-nav">
+{section_nav}
         </nav>
       </aside>
 
@@ -213,17 +310,16 @@ def build_html(title: str, intro: str, sections_html: str, nav: list[tuple[str, 
         <section class="hero" id="top">
           <div class="hero-grid">
             <div>
-              <p class="kicker">Generated Docs</p>
-              <h2>{html.escape(title)}</h2>
+              <h2>{hero_title}</h2>
+              <p>{hero_tagline}</p>
             </div>
-
           </div>
         </section>
 
         {sections_html}
 
         <div class="footer">
-          Generated from <code>README.md</code>.
+          Generated from <code>{source_name}</code>.
         </div>
       </main>
     </div>
@@ -232,11 +328,13 @@ def build_html(title: str, intro: str, sections_html: str, nav: list[tuple[str, 
 """
 
 
-def main() -> None:
-    text = README.read_text(encoding="utf-8")
+def render_page(page: dict[str, object]) -> None:
+    source = Path(page["source"])  # type: ignore[arg-type]
+    output = Path(page["output"])  # type: ignore[arg-type]
+    text = source.read_text(encoding="utf-8")
     lines = text.splitlines()
-    title = "Major MIDI"
-    intro = "A practical front-panel guide for using Major MIDI on Daisy Patch SM."
+    title = str(page["hero_title"])
+    intro = "Major MIDI documentation."
 
     for line in lines:
         stripped = line.strip()
@@ -247,13 +345,20 @@ def main() -> None:
     for line in lines:
         stripped = line.strip()
         if stripped and not stripped.startswith("#"):
-            intro = stripped.replace("`", "")
+            intro = plain_text(stripped)
             break
 
     blocks = split_blocks(lines)
     sections_html, nav = build_sections(blocks)
-    output = build_html(title, intro, sections_html, nav)
-    OUTPUT.write_text(output, encoding="utf-8")
+    output.write_text(
+        build_html(page, title, intro, sections_html, nav),
+        encoding="utf-8",
+    )
+
+
+def main() -> None:
+    for page in PAGES:
+        render_page(page)
 
 
 if __name__ == "__main__":

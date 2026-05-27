@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dev Resources | Major MIDI</title>
+    <meta
+      name="description"
+      content="Developer-facing GitHub documentation still lives in README.md. This page is the site-facing entry point for people who need build context, source layout, and docs workflow."
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <p class="kicker">Major MIDI</p>
+          <h1>Dev Resources</h1>
+        </div>
+
+        <p class="nav-label">Pages</p>
+        <nav class="nav page-nav">
+          <a href="index.html">Home</a>
+          <a href="user.html">User Manual</a>
+          <a class="active" href="dev.html">Dev Resources</a>
+          <a href="order.html">Order</a>
+        </nav>
+
+        <p class="nav-label">On This Page</p>
+        <nav class="nav section-nav">
+          <a href="#build">Build</a>
+          <a href="#source-layout">Source Layout</a>
+          <a href="#docs-site">Docs Site</a>
+          <a href="#persistence-model">Persistence Model</a>
+          <a href="#next-step">Next Step</a>
+        </nav>
+      </aside>
+
+      <main class="main">
+        <section class="hero" id="top">
+          <div class="hero-grid">
+            <div>
+              <h2>Dev Resources</h2>
+              <p>Build notes, source map, and development entry points.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="overview">
+  <h2>Overview</h2>
+<p>Developer-facing GitHub documentation still lives in <a href="../README.md">README.md</a>. This page is the site-facing entry point for people who need build context, source layout, and docs workflow.</p>
+</section>
+<section class="section" id="build">
+  <h2>Build</h2>
+<p>Major MIDI uses the libDaisy Make workflow.</p>
+<pre><code class="language-sh">make</code></pre>
+<p>Useful follow-up:</p>
+<pre><code class="language-sh">make clean
+python3 docs/generate_docs.py</code></pre>
+</section>
+<section class="section" id="source-layout">
+  <h2>Source Layout</h2>
+<div class="table-wrap"><table><thead><tr><th>Path</th><th>Purpose</th></tr></thead><tbody><tr><td><code>src/main.cpp</code></td><td>App setup, transport loop, media reload, save flow</td></tr><tr><td><code>src/ui/</code></td><td>Input scanning, event translation, UI state changes, OLED rendering</td></tr><tr><td><code>src/midi/</code></td><td>MIDI file playback, routing, media browser, scheduler</td></tr><tr><td><code>src/synth/</code></td><td>SF2 synth integration</td></tr><tr><td><code>src/cv/</code></td><td>CV/gate behavior</td></tr><tr><td><code>src/persist/</code></td><td>Boot state and song-scoped persistence</td></tr><tr><td><code>docs/</code></td><td>Generated site output and CSS</td></tr></tbody></table></div>
+</section>
+<section class="section" id="docs-site">
+  <h2>Docs Site</h2>
+<p>The docs site is now multi-page.</p>
+<div class="table-wrap"><table><thead><tr><th>Source</th><th>Output</th></tr></thead><tbody><tr><td><code>SPLASH.md</code></td><td><code>docs/index.html</code></td></tr><tr><td><code>USER.md</code></td><td><code>docs/user.html</code></td></tr><tr><td><code>DEV.md</code></td><td><code>docs/dev.html</code></td></tr><tr><td><code>ORDER.md</code></td><td><code>docs/order.html</code></td></tr></tbody></table></div>
+<p>All pages are generated with:</p>
+<pre><code class="language-sh">python3 docs/generate_docs.py</code></pre>
+</section>
+<section class="section" id="persistence-model">
+  <h2>Persistence Model</h2>
+<div class="table-wrap"><table><thead><tr><th>File</th><th>Purpose</th></tr></thead><tbody><tr><td><code>0:/major_midi_boot.cfg</code></td><td>Last boot MIDI selection and general UI preferences</td></tr><tr><td><code>&lt;selected-midi&gt;.cfg</code></td><td>Song-scoped SF2, routing, CV/gate, and channel settings</td></tr></tbody></table></div>
+</section>
+<section class="section" id="next-step">
+  <h2>Next Step</h2>
+<p>For repo-level context, design intent, and maintenance notes, use <a href="../README.md">README.md</a>.</p>
+</section>
+
+        <div class="footer">
+          Generated from <code>DEV.md</code>.
+        </div>
+      </main>
+    </div>
+  </body>
+</html>

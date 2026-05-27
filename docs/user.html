@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>User Manual | Major MIDI</title>
+    <meta
+      name="description"
+      content="Major MIDI is a Daisy Patch SM firmware for playing Standard MIDI Files from SD card through a SoundFont 2 synth engine, with front-panel mixing, live MIDI input, internal or external sync, saved song settings, MIDI routing, and assignable CV/gate I/O."
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <p class="kicker">Major MIDI</p>
+          <h1>User Manual</h1>
+        </div>
+
+        <p class="nav-label">Pages</p>
+        <nav class="nav page-nav">
+          <a href="index.html">Home</a>
+          <a class="active" href="user.html">User Manual</a>
+          <a href="dev.html">Dev Resources</a>
+          <a href="order.html">Order</a>
+        </nav>
+
+        <p class="nav-label">On This Page</p>
+        <nav class="nav section-nav">
+          <a href="#quick-start">Quick Start</a>
+          <a href="#sd-card-layout">SD Card Layout</a>
+          <a href="#boot-and-loading">Boot And Loading</a>
+          <a href="#front-panel">Front Panel</a>
+          <a href="#performance-view">Performance View</a>
+          <a href="#banks-and-knob-pages">Banks And Knob Pages</a>
+          <a href="#bpm-editing">BPM Editing</a>
+          <a href="#channel-focus">Channel Focus</a>
+          <a href="#mute-page">Mute Page</a>
+          <a href="#extra-views">Extra Views</a>
+          <a href="#loop-edit">Loop Edit</a>
+          <a href="#menu-basics">Menu Basics</a>
+          <a href="#load-midi-and-load-sf2">Load MIDI And Load SF2</a>
+          <a href="#general">General</a>
+          <a href="#fx">FX</a>
+          <a href="#song">Song</a>
+          <a href="#sf2">SF2</a>
+          <a href="#midi">MIDI</a>
+          <a href="#cv-gate">CV/Gate</a>
+          <a href="#sync">Sync</a>
+          <a href="#saving-and-recall">Saving And Recall</a>
+          <a href="#troubleshooting">Troubleshooting</a>
+        </nav>
+      </aside>
+
+      <main class="main">
+        <section class="hero" id="top">
+          <div class="hero-grid">
+            <div>
+              <h2>User Manual</h2>
+              <p>Current operating guide for the Major MIDI firmware.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="overview">
+  <h2>Overview</h2>
+<p>Major MIDI is a Daisy Patch SM firmware for playing Standard MIDI Files from SD card through a SoundFont 2 synth engine, with front-panel mixing, live MIDI input, internal or external sync, saved song settings, MIDI routing, and assignable CV/gate I/O.</p>
+</section>
+<section class="section" id="quick-start">
+  <h2>Quick Start</h2>
+<ol class="steps"><li>Copy one or more <code>.mid</code> files into <code>0:/midi</code>.</li><li>Copy one or more <code>.sf2</code> files into <code>0:/soundfonts</code>.</li><li>Insert the SD card and power the module.</li><li>Open the menu with a long encoder press.</li><li>Load a MIDI file from <code>Load MIDI</code>.</li><li>Load a SoundFont from <code>Load SF2</code>.</li><li>Return to the performance screen.</li><li>Press <code>Play</code>.</li></ol>
+<p>If the sync switch is set to external, playback will wait for external clock instead of free-running.</p>
+</section>
+<section class="section" id="sd-card-layout">
+  <h2>SD Card Layout</h2>
+<p>Major MIDI scans these folders recursively:</p>
+<pre><code class="language-text">0:/midi
+0:/soundfonts</code></pre>
+<p>Example:</p>
+<pre><code class="language-text">0:/midi/set1/track01.mid
+0:/midi/loops/arp.mid
+0:/soundfonts/general/microgm.sf2
+0:/soundfonts/drums/clubkit.sf2</code></pre>
+<p>Hidden files and AppleDouble files are ignored.</p>
+</section>
+<section class="section" id="boot-and-loading">
+  <h2>Boot And Loading</h2>
+<p>On boot, Major MIDI:</p>
+<div class="table-wrap"><table><thead><tr><th>Step</th><th>Behavior</th></tr></thead><tbody><tr><td>SD scan</td><td>Scans <code>0:/midi</code> and <code>0:/soundfonts</code></td></tr><tr><td>MIDI restore</td><td>Reloads the last saved MIDI selection when available</td></tr><tr><td>SF2 selection</td><td>Starts from the first SF2, then may switch to the song&#x27;s saved SF2</td></tr><tr><td>Song config</td><td>Loads <code>&lt;midi-file&gt;.cfg</code> if present</td></tr><tr><td>UI prefs</td><td>Loads general UI settings from <code>0:/major_midi_boot.cfg</code></td></tr></tbody></table></div>
+<p>If both a MIDI file and an SF2 are available, the unit loads them automatically at startup.</p>
+</section>
+<section class="section" id="front-panel">
+  <h2>Front Panel</h2>
+<div class="table-wrap"><table><thead><tr><th>Control</th><th>Role</th></tr></thead><tbody><tr><td><code>B1..B4</code></td><td>Bank buttons and view combos</td></tr><tr><td><code>K1..K4</code></td><td>Per-channel controls for the visible bank</td></tr><tr><td><code>Play</code></td><td>Transport and back/cancel in menus</td></tr><tr><td>Encoder turn</td><td>Page selection, menu navigation, loop edits, BPM edit</td></tr><tr><td>Encoder press</td><td>Shift, confirm, enter/exit edit modes</td></tr><tr><td>OLED</td><td>Current mode, transport, file names, and parameter values</td></tr></tbody></table></div>
+<p>The sync source is a hardware switch. Internal sync free-runs from the current BPM. External sync follows incoming MIDI clock or configured gate sync.</p>
+</section>
+<section class="section" id="performance-view">
+  <h2>Performance View</h2>
+<p>Performance mode is the default screen.</p>
+<p>Top-line fields show:</p>
+<div class="table-wrap"><table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody><tr><td><code>STP</code> or <code>PLY</code></td><td>Stopped or playing</td></tr><tr><td>BPM</td><td>Current transport BPM</td></tr><tr><td>Measure and beat</td><td>Current musical position</td></tr><tr><td><code>B1..B4</code></td><td>Active bank</td></tr><tr><td><code>V</code>, <code>P</code>, <code>R</code>, <code>C</code>, <code>G</code>, <code>M</code>, <code>BPM</code></td><td>Active knob page</td></tr></tbody></table></div>
+<p>The screen also shows the current MIDI file, the current SoundFont, and four visible channels from the selected bank.</p>
+</section>
+<section class="section" id="banks-and-knob-pages">
+  <h2>Banks And Knob Pages</h2>
+<p>The 16 channels are shown in four banks:</p>
+<div class="table-wrap"><table><thead><tr><th>Bank</th><th>Channels</th></tr></thead><tbody><tr><td><code>B1</code></td><td>1-4</td></tr><tr><td><code>B2</code></td><td>5-8</td></tr><tr><td><code>B3</code></td><td>9-12</td></tr><tr><td><code>B4</code></td><td>13-16</td></tr></tbody></table></div>
+<p>Press <code>B1..B4</code> to select a bank.</p>
+<p>Turn the encoder in performance mode to cycle knob pages:</p>
+<div class="table-wrap"><table><thead><tr><th>Page</th><th>Function</th></tr></thead><tbody><tr><td><code>V</code></td><td>Volume</td></tr><tr><td><code>P</code></td><td>Pan</td></tr><tr><td><code>R</code></td><td>Reverb send</td></tr><tr><td><code>C</code></td><td>Chorus send</td></tr><tr><td><code>G</code></td><td>Program override</td></tr><tr><td><code>M</code></td><td>Mute</td></tr><tr><td><code>BPM</code></td><td>Tempo edit page</td></tr></tbody></table></div>
+<p><code>K1..K4</code> always control the four visible channels for the active page.</p>
+<p>With <code>Knobs</code> set to <code>Pickup</code>, a knob must cross the stored value before it takes control. With <code>Knobs</code> set to <code>Instant</code>, the value jumps immediately.</p>
+</section>
+<section class="section" id="bpm-editing">
+  <h2>BPM Editing</h2>
+<p>The encoder does not always change tempo directly.</p>
+<p>To edit tempo:</p>
+<ol class="steps"><li>Turn the encoder until the active page is <code>BPM</code>.</li><li>Tap the encoder to unlock BPM editing.</li><li>Turn the encoder to set BPM from <code>20</code> to <code>300</code>.</li><li>Tap the encoder again to lock BPM.</li></ol>
+<p>If a song BPM override is saved for the current MIDI file, that override is applied when the song loads.</p>
+</section>
+<section class="section" id="channel-focus">
+  <h2>Channel Focus</h2>
+<p>Long-press one of <code>B1..B4</code> in performance mode to focus that visible channel.</p>
+<p>Channel focus shows:</p>
+<div class="table-wrap"><table><thead><tr><th>Item</th><th>Meaning</th></tr></thead><tbody><tr><td>Channel and bank</td><td>Which channel is selected</td></tr><tr><td>Program</td><td>Current program or override</td></tr><tr><td>Program name</td><td>Current GM/SF2 program label when available</td></tr><tr><td>Volume and pan</td><td>Current mix values</td></tr><tr><td>Reverb and chorus</td><td>Current send values</td></tr><tr><td>Mute state</td><td>Per-channel mute status</td></tr></tbody></table></div>
+<p>Tap the encoder to leave channel focus and return to the normal bank view.</p>
+</section>
+<section class="section" id="mute-page">
+  <h2>Mute Page</h2>
+<p>On the <code>M</code> knob page:</p>
+<div class="table-wrap"><table><thead><tr><th>Control</th><th>Result</th></tr></thead><tbody><tr><td><code>K1..K4</code></td><td>Set mute state for the visible channels</td></tr><tr><td><code>B1..B4</code></td><td>Toggle mute for the visible channels directly</td></tr></tbody></table></div>
+<p>To switch banks while on the mute page, hold the encoder and press a bank button.</p>
+</section>
+<section class="section" id="extra-views">
+  <h2>Extra Views</h2>
+<p>Press the button combos below to open alternate views:</p>
+<div class="table-wrap"><table><thead><tr><th>Combo</th><th>View</th></tr></thead><tbody><tr><td><code>B1 + B2</code></td><td>MIDI monitor</td></tr><tr><td><code>B1 + B3</code></td><td>Transport/song info</td></tr><tr><td><code>B1 + B4</code></td><td>Loop edit</td></tr></tbody></table></div>
+<h3>MIDI Monitor</h3>
+<p>The MIDI monitor shows the most recent note, pitch bend, and CC activity for each channel.</p>
+<p>Controls:</p>
+<div class="table-wrap"><table><thead><tr><th>Control</th><th>Result</th></tr></thead><tbody><tr><td>Encoder turn</td><td>Scroll channel list</td></tr><tr><td><code>Play</code></td><td>Clear monitor data</td></tr><tr><td>Encoder tap or long press</td><td>Exit</td></tr></tbody></table></div>
+<h3>Transport View</h3>
+<p>The transport view shows the current MIDI file, measure and beat, loop range, current tick, active voice count, and time signature.</p>
+<p>Press <code>Play</code>, tap the encoder, or long-press the encoder to exit back to performance mode.</p>
+</section>
+<section class="section" id="loop-edit">
+  <h2>Loop Edit</h2>
+<p>Loop edit gives direct access to the current loop range.</p>
+<p>Editable fields:</p>
+<div class="table-wrap"><table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody><tr><td><code>Active</code></td><td>Enable or disable looping</td></tr><tr><td><code>St M</code></td><td>Start measure</td></tr><tr><td><code>St B</code></td><td>Start beat</td></tr><tr><td><code>St T</code></td><td>Start tick</td></tr><tr><td><code>Ln M</code></td><td>Loop length in measures</td></tr><tr><td><code>Ln B</code></td><td>Additional beats</td></tr><tr><td><code>Ln T</code></td><td>Absolute length in ticks</td></tr></tbody></table></div>
+<p>Controls:</p>
+<div class="table-wrap"><table><thead><tr><th>Control</th><th>Result</th></tr></thead><tbody><tr><td>Encoder turn</td><td>Move between fields</td></tr><tr><td>Encoder press</td><td>Toggle edit mode for the selected field</td></tr><tr><td><code>Play</code></td><td>Exit loop edit</td></tr><tr><td>Encoder long press</td><td>Exit loop edit</td></tr></tbody></table></div>
+</section>
+<section class="section" id="menu-basics">
+  <h2>Menu Basics</h2>
+<p>Open or close the main menu with either:</p>
+<div class="table-wrap"><table><thead><tr><th>Action</th><th>Result</th></tr></thead><tbody><tr><td>Long encoder press</td><td>Toggle menu</td></tr><tr><td>Hold encoder and press <code>Play</code></td><td>Toggle menu</td></tr></tbody></table></div>
+<p>Inside menus:</p>
+<div class="table-wrap"><table><thead><tr><th>Control</th><th>Result</th></tr></thead><tbody><tr><td>Encoder turn</td><td>Move cursor</td></tr><tr><td>Encoder press</td><td>Enter page, confirm selection, or toggle page edit mode</td></tr><tr><td><code>Play</code></td><td>Back out one level or leave the menu</td></tr></tbody></table></div>
+<p>Main menu pages:</p>
+<div class="table-wrap"><table><thead><tr><th>Page</th><th>Purpose</th></tr></thead><tbody><tr><td><code>Load MIDI</code></td><td>Browse and load <code>.mid</code> files</td></tr><tr><td><code>Load SF2</code></td><td>Browse and load <code>.sf2</code> files</td></tr><tr><td><code>General</code></td><td>UI preferences</td></tr><tr><td><code>FX</code></td><td>Global synth FX tuning</td></tr><tr><td><code>Song</code></td><td>Song-level loop and tempo settings</td></tr><tr><td><code>SF2</code></td><td>Synth and per-channel settings</td></tr><tr><td><code>MIDI</code></td><td>USB/UART output routing</td></tr><tr><td><code>CV/Gate</code></td><td>CV and gate assignment</td></tr><tr><td><code>Save All</code></td><td>Write config files safely</td></tr></tbody></table></div>
+</section>
+<section class="section" id="load-midi-and-load-sf2">
+  <h2>Load MIDI And Load SF2</h2>
+<p>The file browsers support subdirectories.</p>
+<p>Behavior:</p>
+<div class="table-wrap"><table><thead><tr><th>Item</th><th>Behavior</th></tr></thead><tbody><tr><td>Directory</td><td>Enter it</td></tr><tr><td><code>[..]</code></td><td>Go up one level</td></tr><tr><td>File</td><td>Load it</td></tr></tbody></table></div>
+<p>Loading a MIDI file also reloads the song-scoped config file when <code>&lt;song&gt;.cfg</code> exists next to that MIDI file.</p>
+</section>
+<section class="section" id="general">
+  <h2>General</h2>
+<p>General settings:</p>
+<div class="table-wrap"><table><thead><tr><th>Item</th><th>Meaning</th></tr></thead><tbody><tr><td><code>Saver</code></td><td>Screen saver timeout</td></tr><tr><td><code>Knobs</code></td><td><code>Pickup</code> or <code>Instant</code></td></tr><tr><td><code>Enc</code></td><td>Encoder direction</td></tr><tr><td><code>OLED X</code></td><td>Horizontal OLED column offset</td></tr></tbody></table></div>
+</section>
+<section class="section" id="fx">
+  <h2>FX</h2>
+<p>FX settings are global, not per-channel.</p>
+<div class="table-wrap"><table><thead><tr><th>Item</th><th>Meaning</th></tr></thead><tbody><tr><td><code>Rev Time</code></td><td>Reverb time</td></tr><tr><td><code>Rev LPF</code></td><td>Reverb low-pass filter</td></tr><tr><td><code>Rev HPF</code></td><td>Reverb high-pass filter</td></tr><tr><td><code>Ch Depth</code></td><td>Chorus depth</td></tr><tr><td><code>Ch Speed</code></td><td>Chorus speed</td></tr></tbody></table></div>
+<p>Per-channel reverb and chorus amounts stay on the performance pages and in the <code>SF2</code> menu.</p>
+</section>
+<section class="section" id="song">
+  <h2>Song</h2>
+<p>Song settings:</p>
+<div class="table-wrap"><table><thead><tr><th>Item</th><th>Meaning</th></tr></thead><tbody><tr><td><code>BPM Ovr</code></td><td>Saved BPM override</td></tr><tr><td><code>Loop</code></td><td>Loop enable</td></tr><tr><td><code>St M</code>, <code>St B</code>, <code>St T</code></td><td>Loop start</td></tr><tr><td><code>Ln M</code>, <code>Ln B</code>, <code>Ln T</code></td><td>Loop length</td></tr><tr><td><code>Save To MIDI</code></td><td>Write embedded Major MIDI song metadata</td></tr></tbody></table></div>
+<p><code>Save To MIDI</code> updates the current <code>.mid</code> file. It does not replace <code>Save All</code>.</p>
+</section>
+<section class="section" id="sf2">
+  <h2>SF2</h2>
+<p>SF2 settings:</p>
+<div class="table-wrap"><table><thead><tr><th>Item</th><th>Meaning</th></tr></thead><tbody><tr><td><code>Voices</code></td><td>Max synth voices</td></tr><tr><td><code>Channel</code></td><td>Channel being edited</td></tr><tr><td><code>Mute</code></td><td>Mute for that channel</td></tr><tr><td><code>Volume</code></td><td>Channel volume</td></tr><tr><td><code>Pan</code></td><td>Channel pan</td></tr><tr><td><code>RevSend</code></td><td>Channel reverb send</td></tr><tr><td><code>ChoSend</code></td><td>Channel chorus send</td></tr><tr><td><code>Program</code></td><td>Program override or file-follow mode</td></tr><tr><td><code>Trans</code></td><td>Global transpose</td></tr></tbody></table></div>
+<p>Program behavior:</p>
+<div class="table-wrap"><table><thead><tr><th>Value</th><th>Result</th></tr></thead><tbody><tr><td><code>Program File</code></td><td>Follow program changes from the MIDI file</td></tr><tr><td><code>Program 000..127</code></td><td>Force a manual program override</td></tr></tbody></table></div>
+<p>Higher voice counts increase CPU load. If playback becomes unstable, reduce <code>Voices</code>.</p>
+</section>
+<section class="section" id="midi">
+  <h2>MIDI</h2>
+<p>The <code>MIDI</code> page controls USB and UART output routing.</p>
+<p>Available output modes:</p>
+<div class="table-wrap"><table><thead><tr><th>Mode</th><th>Meaning</th></tr></thead><tbody><tr><td><code>Off</code></td><td>No channel output</td></tr><tr><td><code>Notes</code></td><td>Forward notes only</td></tr><tr><td><code>Nt+CC</code></td><td>Forward notes and CCs</td></tr><tr><td><code>N+C+P</code></td><td>Forward notes, CCs, and programs</td></tr><tr><td><code>Matrix</code></td><td>Per-channel routing matrix</td></tr></tbody></table></div>
+<p>Matrix controls let you choose:</p>
+<div class="table-wrap"><table><thead><tr><th>Item</th><th>Meaning</th></tr></thead><tbody><tr><td><code>Mtx Port</code></td><td>USB or UART</td></tr><tr><td><code>Mtx Src</code></td><td>Source channel</td></tr><tr><td><code>Mtx Dst</code></td><td>Destination channel</td></tr><tr><td><code>Mtx Nt</code></td><td>Forward notes</td></tr><tr><td><code>Mtx CC</code></td><td>Forward CCs</td></tr><tr><td><code>Mtx Prg</code></td><td>Forward program changes</td></tr></tbody></table></div>
+<p>There are also dedicated toggles for:</p>
+<div class="table-wrap"><table><thead><tr><th>Item</th><th>Meaning</th></tr></thead><tbody><tr><td><code>USB Trn</code> / <code>UART Trn</code></td><td>Forward transport messages</td></tr><tr><td><code>USB Clk</code> / <code>UART Clk</code></td><td>Forward clock</td></tr><tr><td><code>USB&gt;UART</code></td><td>Pass USB input to UART output</td></tr><tr><td><code>UART&gt;USB</code></td><td>Pass UART input to USB output</td></tr></tbody></table></div>
+</section>
+<section class="section" id="cv-gate">
+  <h2>CV/Gate</h2>
+<p>CV/Gate assignments are fully configurable per song.</p>
+<p>Input CV modes:</p>
+<div class="table-wrap"><table><thead><tr><th>Mode</th><th>Meaning</th></tr></thead><tbody><tr><td><code>Off</code></td><td>Disabled</td></tr><tr><td><code>MasterVol</code></td><td>Master volume control</td></tr><tr><td><code>BPM</code></td><td>Tempo control</td></tr><tr><td><code>Ch Pitch</code></td><td>Channel pitch control</td></tr><tr><td><code>Ch CC</code></td><td>Channel CC control</td></tr><tr><td><code>NotePitch</code></td><td>Note pitch control</td></tr></tbody></table></div>
+<p>Gate input modes:</p>
+<div class="table-wrap"><table><thead><tr><th>Mode</th><th>Meaning</th></tr></thead><tbody><tr><td><code>Off</code></td><td>Disabled</td></tr><tr><td><code>Sync</code></td><td>External gate sync input</td></tr><tr><td><code>NoteTrig</code></td><td>Trigger notes on a channel</td></tr></tbody></table></div>
+<p>Gate output modes:</p>
+<div class="table-wrap"><table><thead><tr><th>Mode</th><th>Meaning</th></tr></thead><tbody><tr><td><code>Off</code></td><td>Disabled</td></tr><tr><td><code>Sync</code></td><td>Clock output</td></tr><tr><td><code>Reset</code></td><td>Reset pulse output</td></tr><tr><td><code>Ch Gate</code></td><td>Gate output from a channel</td></tr></tbody></table></div>
+<p>CV output modes:</p>
+<div class="table-wrap"><table><thead><tr><th>Mode</th><th>Meaning</th></tr></thead><tbody><tr><td><code>Off</code></td><td>Disabled</td></tr><tr><td><code>Pitch</code></td><td>Output channel pitch</td></tr><tr><td><code>CC</code></td><td>Output a channel CC value</td></tr></tbody></table></div>
+<p>Each CV/gate page also exposes the related channel, CC number, sync resolution, trigger style, or note priority when that mode needs it.</p>
+</section>
+<section class="section" id="sync">
+  <h2>Sync</h2>
+<p>Major MIDI has two sync behaviors:</p>
+<div class="table-wrap"><table><thead><tr><th>Sync source</th><th>Behavior</th></tr></thead><tbody><tr><td>Internal</td><td>Plays at the current BPM</td></tr><tr><td>External</td><td>Waits for incoming clock before advancing</td></tr></tbody></table></div>
+<p>External sync can follow:</p>
+<div class="table-wrap"><table><thead><tr><th>Source</th><th>Notes</th></tr></thead><tbody><tr><td>MIDI clock</td><td>Via incoming MIDI transport clock</td></tr><tr><td>Gate sync</td><td>Via configured gate input sync pulses</td></tr></tbody></table></div>
+<p>If external sync is selected and no valid clock arrives, <code>Play</code> will arm transport but the song will not move.</p>
+</section>
+<section class="section" id="saving-and-recall">
+  <h2>Saving And Recall</h2>
+<p>There are two save paths:</p>
+<div class="table-wrap"><table><thead><tr><th>Action</th><th>What it writes</th></tr></thead><tbody><tr><td><code>Song &gt; Save To MIDI</code></td><td>Embedded Major MIDI metadata inside the current <code>.mid</code></td></tr><tr><td><code>Save All</code></td><td><code>&lt;current-midi&gt;.cfg</code> plus boot/UI state</td></tr></tbody></table></div>
+<p><code>Save All</code> stores:</p>
+<div class="table-wrap"><table><thead><tr><th>Saved state</th></tr></thead><tbody><tr><td>Selected SF2 for the current song</td></tr><tr><td>Channel mix, mute, and program override state</td></tr><tr><td>Song loop data</td></tr><tr><td>MIDI routing</td></tr><tr><td>CV/gate assignments</td></tr><tr><td>General UI settings and last boot MIDI selection</td></tr></tbody></table></div>
+<p>For reliability, use <code>Save All</code> only while playback is stopped.</p>
+</section>
+<section class="section" id="troubleshooting">
+  <h2>Troubleshooting</h2>
+<div class="table-wrap"><table><thead><tr><th>Problem</th><th>Check</th></tr></thead><tbody><tr><td>No playback when pressing <code>Play</code></td><td>Sync switch may be set to external with no incoming clock</td></tr><tr><td>No files in browser</td><td>Confirm files are under <code>0:/midi</code> or <code>0:/soundfonts</code></td></tr><tr><td>Wrong instrument loads with a song</td><td>Check the song&#x27;s saved SF2 and per-channel program overrides</td></tr><tr><td>Knobs do not respond immediately</td><td><code>Knobs</code> may be set to <code>Pickup</code></td></tr><tr><td>Audio overload or glitches</td><td>Lower <code>Voices</code>, reduce dense arrangements, or use a lighter SF2</td></tr></tbody></table></div>
+</section>
+
+        <div class="footer">
+          Generated from <code>USER.md</code>.
+        </div>
+      </main>
+    </div>
+  </body>
+</html>
