@@ -153,6 +153,7 @@ static float   g_chorus_depth = 0.35f;
 static float   g_chorus_speed_hz = 0.25f;
 static float   g_external_gain = 1.0f;
 static bool    g_fx_load_shed = false;
+static bool    g_synth_enabled = true;
 
 namespace
 {
@@ -213,7 +214,18 @@ bool SynthLoadSf2(const char* path, float sampleRate, int voices)
     g_sf2file_open = false;
 
     tsf_set_output(g_tsf, TSF_STEREO_INTERLEAVED, sampleRate, 0.0f);
-    tsf_set_max_voices(g_tsf, voices);
+    if(voices <= 0)
+    {
+        g_synth_enabled = false;
+        tsf_set_max_voices(g_tsf, 4);
+    }
+    else
+    {
+        if(voices > 32)
+            voices = 32;
+        g_synth_enabled = true;
+        tsf_set_max_voices(g_tsf, voices);
+    }
     if(!g_fx_init)
     {
         g_chorus.Init(sampleRate);
@@ -260,17 +272,22 @@ void SynthUnloadSf2()
 
 int SynthActiveVoiceCount()
 {
-    return g_tsf ? tsf_active_voice_count(g_tsf) : 0;
+    return (g_tsf && g_synth_enabled) ? tsf_active_voice_count(g_tsf) : 0;
 }
 
 void SynthSetMaxVoices(int maxVoices)
 {
     if(!g_tsf)
         return;
-    if(maxVoices < 4)
-        maxVoices = 4;
+    if(maxVoices <= 0)
+    {
+        g_synth_enabled = false;
+        tsf_reset(g_tsf);
+        return;
+    }
     if(maxVoices > 32)
         maxVoices = 32;
+    g_synth_enabled = true;
     tsf_reset(g_tsf);
     tsf_set_max_voices(g_tsf, maxVoices);
 }
@@ -307,7 +324,7 @@ void SynthPanic()
 
 bool SynthNoteOn(uint8_t ch, uint8_t key, uint8_t vel)
 {
-    if(!g_tsf)
+    if(!g_tsf || !g_synth_enabled)
         return false;
     const float v = (vel <= 1) ? 0.0f : (float)vel / 127.0f;
     return tsf_channel_note_on(g_tsf, (int)ch, (int)key, v) != 0;
@@ -315,28 +332,28 @@ bool SynthNoteOn(uint8_t ch, uint8_t key, uint8_t vel)
 
 void SynthNoteOff(uint8_t ch, uint8_t key)
 {
-    if(!g_tsf)
+    if(!g_tsf || !g_synth_enabled)
         return;
     tsf_channel_note_off(g_tsf, (int)ch, (int)key);
 }
 
 void SynthAllNotesOff(uint8_t ch)
 {
-    if(!g_tsf)
+    if(!g_tsf || !g_synth_enabled)
         return;
     tsf_channel_note_off_all(g_tsf, (int)ch);
 }
 
 void SynthAllSoundOff(uint8_t ch)
 {
-    if(!g_tsf)
+    if(!g_tsf || !g_synth_enabled)
         return;
     tsf_channel_sounds_off_all(g_tsf, (int)ch);
 }
 
 void SynthProgramChange(uint8_t ch, uint8_t program)
 {
-    if(!g_tsf)
+    if(!g_tsf || !g_synth_enabled)
         return;
     tsf_channel_set_presetnumber(g_tsf, (int)ch, (int)program, ch == 9 ? 1 : 0);
 }
@@ -352,21 +369,21 @@ const char* SynthProgramName(uint8_t ch, uint8_t program)
 
 void SynthControlChange(uint8_t ch, uint8_t cc, uint8_t value)
 {
-    if(!g_tsf)
+    if(!g_tsf || !g_synth_enabled)
         return;
     tsf_channel_midi_control(g_tsf, (int)ch, (int)cc, (int)value);
 }
 
 void SynthPitchBend(uint8_t ch, uint16_t value)
 {
-    if(!g_tsf)
+    if(!g_tsf || !g_synth_enabled)
         return;
     tsf_channel_set_pitchwheel(g_tsf, (int)ch, (int)value);
 }
 
 void SynthResetChannels()
 {
-    if(!g_tsf)
+    if(!g_tsf || !g_synth_enabled)
         return;
     for(int ch = 0; ch < 16; ch++)
     {
@@ -381,7 +398,7 @@ void SynthResetChannels()
 
 void SynthRender(float* outL, float* outR, size_t frames)
 {
-    if(!g_tsf)
+    if(!g_tsf || !g_synth_enabled)
     {
         for(size_t i = 0; i < frames; i++)
             outL[i] = outR[i] = 0.0f;

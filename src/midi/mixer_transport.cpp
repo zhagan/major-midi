@@ -694,6 +694,27 @@ void MixerTransport::RemapQueuedEventTimes(uint64_t sample_now, double ratio)
     parsed_.Transform(remap);
 }
 
+void MixerTransport::ShiftQueuedEventTimes(uint64_t sample_now, int64_t delta_samples)
+{
+    if(delta_samples == 0)
+        return;
+
+    ScopedIrqBlocker lock;
+    auto shift = [&](MidiEv& ev) {
+        if(ev.atSample <= sample_now)
+            return;
+
+        const int64_t shifted = static_cast<int64_t>(ev.atSample) + delta_samples;
+        if(shifted <= static_cast<int64_t>(sample_now))
+            ev.atSample = sample_now;
+        else
+            ev.atSample = static_cast<uint64_t>(shifted);
+    };
+
+    scheduled_.Transform(shift);
+    parsed_.Transform(shift);
+}
+
 void MixerTransport::ProcessAudio(AudioHandle::InputBuffer  in,
                                   AudioHandle::OutputBuffer out,
                                   size_t                    size)
@@ -1068,6 +1089,47 @@ void MixerTransport::Update(const AppState& state)
     }
 
     ApplyMixerState(state);
+}
+
+void MixerTransport::SyncExternalTick(uint64_t tick, bool force_reseek)
+{
+    if(player_ == nullptr || !IsPlaying())
+        return;
+
+    const uint64_t current_tick = CurrentSongTick();
+    if(!force_reseek && current_tick == tick)
+        return;
+
+    if(force_reseek)
+    {
+        ResetLoopCachePlayback();
+        ClearQueues();
+        FlushLoopBoundaryNotes();
+        player_->SeekToSample(player_->SamplesFromTicks(tick), sample_clock_);
+        phase_start_sample_ = sample_clock_;
+        phase_start_ticks_  = tick;
+        play_start_sample_  = sample_clock_;
+        play_start_ticks_   = tick;
+        loop_end_sample_    = loop_active_ ? (phase_start_sample_ + loop_length_samples_)
+                                           : UINT64_MAX;
+        return;
+    }
+
+    const uint64_t current_sample_pos = player_->SamplesFromTicks(current_tick);
+    const uint64_t target_sample_pos  = player_->SamplesFromTicks(tick);
+    const int64_t  delta_samples
+        = static_cast<int64_t>(target_sample_pos)
+          - static_cast<int64_t>(current_sample_pos);
+
+    ShiftQueuedEventTimes(sample_clock_, delta_samples);
+    player_->RebaseToTick(tick, sample_clock_);
+    phase_start_sample_ = sample_clock_;
+    phase_start_ticks_  = tick;
+    if(!loop_cache_pending_)
+    {
+        play_start_sample_ = sample_clock_;
+        play_start_ticks_  = tick;
+    }
 }
 
 void MixerTransport::HandleMidiMessage(MidiEvent msg, const AppState& state)

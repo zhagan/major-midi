@@ -13,7 +13,7 @@ class UiController
     void Init(AppState& state);
     bool HandleEvent(const UiEvent&    event,
                      uint32_t          now_ms,
-                     const MediaLibrary& library);
+                     MediaLibrary&     library);
 
   private:
     void EnterMenu(uint32_t now_ms);
@@ -29,8 +29,8 @@ class UiController
     void ToggleMenu(uint32_t now_ms);
     void MoveMenuRootCursor(int32_t delta, uint32_t now_ms);
     void MoveMenuPageCursor(int32_t delta, const MediaLibrary& library, uint32_t now_ms);
-    void ActivateMenuRoot(const MediaLibrary& library, uint32_t now_ms);
-    void ActivateMenuPage(const MediaLibrary& library, uint32_t now_ms);
+    void ActivateMenuRoot(MediaLibrary& library, uint32_t now_ms);
+    void ActivateMenuPage(MediaLibrary& library, uint32_t now_ms);
     void AdjustMenuValue(int32_t delta, uint32_t now_ms);
     void MoveLoopEditCursor(int32_t delta, uint32_t now_ms);
     void AdjustLoopEditValue(int32_t delta, uint32_t now_ms);

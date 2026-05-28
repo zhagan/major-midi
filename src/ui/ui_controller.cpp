@@ -34,14 +34,14 @@ size_t MenuPageItemCount(const AppState& state, const MediaLibrary& library)
     switch(state.menu_page)
     {
         case MenuPage::Main: return MainMenuItemCount();
-        case MenuPage::General: return 3;
+        case MenuPage::General: return 4;
         case MenuPage::Fx: return 5;
         case MenuPage::Song: return 9;
         case MenuPage::Sf2: return 9;
-        case MenuPage::Midi: return 11;
+        case MenuPage::Midi: return 14;
         case MenuPage::CvGate: return CvGateVisibleItemCount(state.cv_gate);
-        case MenuPage::LoadMidi: return library.MidiCount();
-        case MenuPage::LoadSf2: return library.SoundFontCount();
+        case MenuPage::LoadMidi: return library.MidiBrowserCount();
+        case MenuPage::LoadSf2: return library.SoundFontBrowserCount();
         case MenuPage::SaveAllConfirm: return 2;
     }
     return 0;
@@ -206,7 +206,7 @@ void UiController::NormalizeLoopState()
 
 bool UiController::HandleEvent(const UiEvent& event,
                                uint32_t       now_ms,
-                               const MediaLibrary& library)
+                               MediaLibrary&  library)
 {
     if(state_ == nullptr)
         return false;
@@ -622,12 +622,18 @@ void UiController::MoveMenuPageCursor(int32_t           delta,
     SetOverlay(*state_, MenuPageName(state_->menu_page), now_ms, 250);
 }
 
-void UiController::ActivateMenuRoot(const MediaLibrary&, uint32_t now_ms)
+void UiController::ActivateMenuRoot(MediaLibrary& library, uint32_t now_ms)
 {
     switch(state_->menu_root_cursor)
     {
-        case 0: EnterMenuPage(MenuPage::LoadMidi, now_ms); break;
-        case 1: EnterMenuPage(MenuPage::LoadSf2, now_ms); break;
+        case 0:
+            library.ResetMidiBrowser();
+            EnterMenuPage(MenuPage::LoadMidi, now_ms);
+            break;
+        case 1:
+            library.ResetSoundFontBrowser();
+            EnterMenuPage(MenuPage::LoadSf2, now_ms);
+            break;
         case 2: EnterMenuPage(MenuPage::General, now_ms); break;
         case 3: EnterMenuPage(MenuPage::Fx, now_ms); break;
         case 4: EnterMenuPage(MenuPage::Song, now_ms); break;
@@ -639,7 +645,7 @@ void UiController::ActivateMenuRoot(const MediaLibrary&, uint32_t now_ms)
     }
 }
 
-void UiController::ActivateMenuPage(const MediaLibrary& library, uint32_t now_ms)
+void UiController::ActivateMenuPage(MediaLibrary& library, uint32_t now_ms)
 {
     if(state_->menu_editing)
     {
@@ -690,24 +696,34 @@ void UiController::ActivateMenuPage(const MediaLibrary& library, uint32_t now_ms
 
         case MenuPage::LoadMidi:
         {
-            const size_t idx = state_->menu_page_cursor;
-            if(idx < library.MidiCount())
+            size_t selected_index = state_->selected_midi_index;
+            if(library.MidiBrowserSelect(state_->menu_page_cursor, selected_index))
             {
-                state_->selected_midi_index = idx;
+                state_->selected_midi_index = selected_index;
                 state_->pending_midi_load   = true;
                 SetOverlay(*state_, "Load MIDI", now_ms);
+            }
+            else
+            {
+                state_->menu_page_cursor = 0;
+                SetOverlay(*state_, "Browse MIDI", now_ms, 300);
             }
         }
         break;
 
         case MenuPage::LoadSf2:
         {
-            const size_t idx = state_->menu_page_cursor;
-            if(idx < library.SoundFontCount())
+            size_t selected_index = state_->selected_sf2_index;
+            if(library.SoundFontBrowserSelect(state_->menu_page_cursor, selected_index))
             {
-                state_->selected_sf2_index = idx;
+                state_->selected_sf2_index = selected_index;
                 state_->pending_sf2_load   = true;
                 SetOverlay(*state_, "Load SF2", now_ms);
+            }
+            else
+            {
+                state_->menu_page_cursor = 0;
+                SetOverlay(*state_, "Browse SF2", now_ms, 300);
             }
         }
         break;
@@ -763,6 +779,10 @@ void UiController::AdjustMenuValue(int32_t delta, uint32_t now_ms)
                         = state_->encoder_direction == EncoderDirection::Normal
                               ? EncoderDirection::Reversed
                               : EncoderDirection::Normal;
+                    break;
+                case 3:
+                    state_->oled_x_offset = static_cast<uint8_t>(
+                        ClampInt(static_cast<int>(state_->oled_x_offset) + delta, 0, 8));
                     break;
                 default: return;
             }
@@ -879,7 +899,7 @@ void UiController::AdjustMenuValue(int32_t delta, uint32_t now_ms)
                     state_->sf2_max_voices
                         = static_cast<uint8_t>(ClampInt(static_cast<int>(state_->sf2_max_voices)
                                                            + (delta > 0 ? 1 : -1),
-                                                       4,
+                                                       0,
                                                        32));
                     break;
                 case 1:
@@ -953,24 +973,45 @@ void UiController::AdjustMenuValue(int32_t delta, uint32_t now_ms)
                 = port_routing->channels[state_->midi_menu_channel];
             switch(static_cast<MidiSettingsMenuItem>(state_->menu_page_cursor))
             {
-                case MidiSettingsMenuItem::OutputChannel:
+                case MidiSettingsMenuItem::UsbMode:
+                    port_routing = &state_->midi_routing.usb;
+                    port_routing->mode = static_cast<MidiOutputMode>(
+                        ClampInt(static_cast<int>(port_routing->mode) + (delta > 0 ? 1 : -1),
+                                 0,
+                                 static_cast<int>(MidiOutputMode::Matrix)));
+                    break;
+                case MidiSettingsMenuItem::UartMode:
+                    port_routing = &state_->midi_routing.uart;
+                    port_routing->mode = static_cast<MidiOutputMode>(
+                        ClampInt(static_cast<int>(port_routing->mode) + (delta > 0 ? 1 : -1),
+                                 0,
+                                 static_cast<int>(MidiOutputMode::Matrix)));
+                    break;
+                case MidiSettingsMenuItem::MatrixPort:
+                    state_->midi_menu_port = state_->midi_menu_port == MidiOutputPort::Usb
+                                                 ? MidiOutputPort::Uart
+                                                 : MidiOutputPort::Usb;
+                    break;
+                case MidiSettingsMenuItem::MatrixSourceChannel:
                     state_->midi_menu_channel = static_cast<uint8_t>(
                         ClampInt(static_cast<int>(state_->midi_menu_channel) + (delta > 0 ? 1 : -1),
                                  0,
                                  15));
                     break;
-                case MidiSettingsMenuItem::OutputPort:
-                    state_->midi_menu_port = state_->midi_menu_port == MidiOutputPort::Usb
-                                                 ? MidiOutputPort::Uart
-                                                 : MidiOutputPort::Usb;
+                case MidiSettingsMenuItem::MatrixDestChannel:
+                    channel_routing.destination_channel = static_cast<uint8_t>(
+                        ClampInt(static_cast<int>(channel_routing.destination_channel)
+                                     + (delta > 0 ? 1 : -1),
+                                 0,
+                                 15));
                     break;
-                case MidiSettingsMenuItem::OutputNotes:
+                case MidiSettingsMenuItem::MatrixNotes:
                     channel_routing.notes = !channel_routing.notes;
                     break;
-                case MidiSettingsMenuItem::OutputCcs:
+                case MidiSettingsMenuItem::MatrixCcs:
                     channel_routing.ccs = !channel_routing.ccs;
                     break;
-                case MidiSettingsMenuItem::OutputPrograms:
+                case MidiSettingsMenuItem::MatrixPrograms:
                     channel_routing.programs = !channel_routing.programs;
                     break;
                 case MidiSettingsMenuItem::UsbTransport:

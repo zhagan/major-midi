@@ -68,11 +68,14 @@ enum class EncoderDirection : uint8_t
 
 enum class MidiSettingsMenuItem : uint8_t
 {
-    OutputChannel,
-    OutputPort,
-    OutputNotes,
-    OutputCcs,
-    OutputPrograms,
+    UsbMode,
+    UartMode,
+    MatrixPort,
+    MatrixSourceChannel,
+    MatrixDestChannel,
+    MatrixNotes,
+    MatrixCcs,
+    MatrixPrograms,
     UsbTransport,
     UsbClock,
     UartTransport,
@@ -85,6 +88,15 @@ enum class MidiOutputPort : uint8_t
 {
     Usb,
     Uart,
+};
+
+enum class MidiOutputMode : uint8_t
+{
+    Off,
+    Notes,
+    NotesCcs,
+    NotesCcsPrograms,
+    Matrix,
 };
 
 enum class CvGateMenuItem : uint8_t
@@ -224,12 +236,14 @@ struct MidiChannelOutputRouting
     bool notes     = false;
     bool ccs       = false;
     bool programs  = false;
+    uint8_t destination_channel = 0;
 };
 
 struct MidiOutputRouting
 {
     bool transport = false;
     bool clock     = false;
+    MidiOutputMode mode = MidiOutputMode::Matrix;
     MidiChannelOutputRouting channels[16]{};
 };
 
@@ -305,6 +319,7 @@ struct AppState
     uint16_t     screen_saver_timeout_s  = 3600;
     KnobPickupMode knob_pickup_mode      = KnobPickupMode::Pickup;
     EncoderDirection encoder_direction   = EncoderDirection::Normal;
+    uint8_t      oled_x_offset           = 0;
     float        fx_reverb_time          = 0.85f;
     float        fx_reverb_lpf_hz        = 8000.0f;
     float        fx_reverb_hpf_hz        = 80.0f;
@@ -422,6 +437,19 @@ inline const char* MidiOutputPortName(MidiOutputPort port)
     return "UART";
 }
 
+inline const char* MidiOutputModeName(MidiOutputMode mode)
+{
+    switch(mode)
+    {
+        case MidiOutputMode::Off: return "Off";
+        case MidiOutputMode::Notes: return "Notes";
+        case MidiOutputMode::NotesCcs: return "Nt+CC";
+        case MidiOutputMode::NotesCcsPrograms: return "N+C+P";
+        case MidiOutputMode::Matrix: return "Matrix";
+    }
+    return "Matrix";
+}
+
 inline const char* KnobPickupModeName(KnobPickupMode mode)
 {
     switch(mode)
@@ -440,6 +468,11 @@ inline const char* EncoderDirectionName(EncoderDirection direction)
         case EncoderDirection::Reversed: return "Reverse";
     }
     return "";
+}
+
+inline const char* OnOffName(bool value)
+{
+    return value ? "On" : "Off";
 }
 
 inline const char* CvInModeName(CvInMode mode)

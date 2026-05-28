@@ -2,6 +2,8 @@
 #include <cstdint>
 #include <cstddef>
 
+#include "hid/midi.h"
+
 enum class EvType : uint8_t
 {
     NoteOn,
@@ -80,3 +82,95 @@ class EventQueue
     size_t head_ = 0;
     size_t tail_ = 0;
 };
+
+namespace major_midi
+{
+
+enum class MidiOutputKind : uint8_t
+{
+    Notes,
+    Ccs,
+    Programs,
+    Transport,
+    Clock,
+};
+
+struct ScheduledMidiOutPacket
+{
+    uint64_t at_sample       = 0;
+    uint64_t uart_due_sample = 0;
+    bool     send_usb        = false;
+    bool     send_uart       = false;
+    bool     usb_sent        = false;
+    bool     uart_sent       = false;
+    uint8_t  bytes[3]{};
+    uint8_t  size = 0;
+    EvType   type = EvType::NoteOn;
+    uint8_t  ch   = 0;
+    uint8_t  a    = 0;
+    uint8_t  b    = 0;
+};
+
+using MidiMonitorEventFn
+    = void (*)(const MidiEv& ev, void* context);
+using MidiBlockEventFn
+    = bool (*)(const MidiEv& ev, void* context);
+using MidiEvToRawBytesFn = bool (*)(const MidiEv&   ev,
+                                    uint8_t         out[3],
+                                    size_t&         size,
+                                    MidiOutputKind& kind,
+                                    void*           context);
+using MidiPreparePacketFn = bool (*)(bool           to_usb,
+                                     MidiOutputKind kind,
+                                     const uint8_t* bytes,
+                                     size_t         size,
+                                     uint8_t        out[3],
+                                     size_t&        out_size,
+                                     void*          context);
+using MidiSendPacketFn
+    = void (*)(bool to_usb, const uint8_t* bytes, size_t size, void* context);
+
+bool BuildRawMidiFromIncomingEvent(const daisy::MidiEvent& msg,
+                                   uint8_t                 out[3],
+                                   size_t&                 size,
+                                   MidiOutputKind&         kind);
+
+bool BuildRawMidiFromScheduledEvent(const MidiEv&         ev,
+                                    uint8_t               out[3],
+                                    size_t&               size,
+                                    MidiOutputKind&       kind);
+
+class ScheduledMidiOutputScheduler
+{
+  public:
+    static constexpr size_t kQueueSize = 64;
+
+    void Reset();
+    bool Empty() const;
+
+    void ForwardScheduledMidiOut(const MidiEv&          ev,
+                                 float                  sample_rate,
+                                 MidiMonitorEventFn     monitor_fn,
+                                 MidiBlockEventFn       block_fn,
+                                 MidiEvToRawBytesFn     to_raw_fn,
+                                 MidiPreparePacketFn    prepare_fn,
+                                 void*                  context);
+
+    void FlushScheduledMidiOut(uint64_t            now_sample,
+                               MidiPreparePacketFn prepare_fn,
+                               MidiSendPacketFn    send_fn,
+                               void*               context);
+
+  private:
+    bool     Enqueue(const ScheduledMidiOutPacket& packet);
+    bool     Peek(ScheduledMidiOutPacket& packet, size_t& index) const;
+    void     MarkSent(size_t index, bool usb_sent, bool uart_sent);
+    uint32_t MidiUartWireSamplesForPacket(float sample_rate, size_t size) const;
+
+    ScheduledMidiOutPacket queue_[kQueueSize]{};
+    size_t                 head_                = 0;
+    size_t                 tail_                = 0;
+    uint64_t               uart_next_tx_sample_ = 0;
+};
+
+} // namespace major_midi

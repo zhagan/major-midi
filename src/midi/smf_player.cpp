@@ -279,6 +279,29 @@ void SmfPlayer::SeekToSample(uint64_t targetSample, uint64_t nowSample)
     }
 }
 
+void SmfPlayer::RebaseToTick(uint64_t targetTick, uint64_t nowSample)
+{
+    if(!open_ || !playing_)
+        return;
+
+    const uint64_t targetSample = SamplesFromTicks(targetTick);
+    const uint64_t relSample
+        = targetSample >= seekSample_ ? (targetSample - seekSample_) : 0;
+    startSample_ = nowSample >= relSample ? (nowSample - relSample) : 0;
+
+    for(uint16_t i = 0; i < trackCount_; i++)
+    {
+        if(!tracks_[i].hasEvent)
+            continue;
+
+        const uint64_t nextRelSample
+            = tracks_[i].sampleOffset >= seekSample_
+                  ? (tracks_[i].sampleOffset - seekSample_)
+                  : 0;
+        tracks_[i].nextEv.atSample = startSample_ + nextRelSample;
+    }
+}
+
 bool SmfPlayer::IsPlaying() const
 {
     return playing_;

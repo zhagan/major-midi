@@ -33,6 +33,7 @@ class SmfPlayer
     void Stop();
     bool IsPlaying() const;
     void SeekToSample(uint64_t targetSample, uint64_t nowSample);
+    void RebaseToTick(uint64_t targetTick, uint64_t nowSample);
     uint32_t RemainingBytes() const;
     uint64_t SamplesPerQuarter() const;
     double SamplesPerQuarterF() const { return samplesPerTick_ * double(divisions_); }

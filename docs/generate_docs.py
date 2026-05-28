@@ -102,6 +102,18 @@ def split_blocks(lines: list[str]) -> list[tuple[str, object]]:
             blocks.append(("code", (lang, "\n".join(code_lines))))
             continue
 
+        if stripped.startswith("<"):
+            html_lines: list[str] = [line]
+            i += 1
+            while i < len(lines):
+                candidate = lines[i].rstrip("\n")
+                if not candidate.strip():
+                    break
+                html_lines.append(candidate)
+                i += 1
+            blocks.append(("html", "\n".join(html_lines)))
+            continue
+
         if re.match(r"^#{1,6}\s", stripped):
             level = len(stripped) - len(stripped.lstrip("#"))
             text = stripped[level:].strip()
@@ -172,13 +184,14 @@ def build_sections(blocks: list[tuple[str, object]]) -> tuple[str, list[tuple[st
     nav: list[tuple[str, str]] = []
     sections: list[str] = []
     current: list[str] = []
-    current_id = "overview"
-    current_title = "Overview"
+    current_id = ""
+    current_title = ""
     first_h1_seen = False
+    in_section = False
 
     def flush_section() -> None:
         nonlocal current, current_id, current_title
-        if not current:
+        if not current or not current_id or not current_title:
             return
         sections.append(
             f'<section class="section" id="{current_id}">\n'
@@ -199,13 +212,21 @@ def build_sections(blocks: list[tuple[str, object]]) -> tuple[str, list[tuple[st
                 current_title = text
                 current_id = slugify(text)
                 nav.append((current_id, text))
+                in_section = True
                 continue
             if level == 3:
+                if not in_section:
+                    continue
                 current.append(f"<h3>{html.escape(text)}</h3>")
                 continue
             if level == 4:
+                if not in_section:
+                    continue
                 current.append(f"<h4>{html.escape(text)}</h4>")
                 continue
+
+        if not in_section:
+            continue
 
         if kind == "paragraph":
             current.append(f"<p>{inline_format(data)}</p>")  # type: ignore[arg-type]
@@ -242,6 +263,8 @@ def build_sections(blocks: list[tuple[str, object]]) -> tuple[str, list[tuple[st
             lang, code = data  # type: ignore[misc]
             cls = f' class="language-{html.escape(lang)}"' if lang else ""
             current.append(f"<pre><code{cls}>{html.escape(code)}</code></pre>")
+        elif kind == "html":
+            current.append(str(data))
 
     flush_section()
     return "\n".join(sections), nav

@@ -6,8 +6,8 @@ namespace major_midi
 namespace
 {
 static constexpr uint8_t kMagic[4] = {'M', 'M', 'M', 'R'};
-static constexpr uint8_t kVersion  = 2;
-static constexpr size_t  kFileSize = 41;
+static constexpr uint8_t kVersion  = 3;
+static constexpr size_t  kFileSize = 73;
 
 uint8_t PackChannelOutput(const MidiChannelOutputRouting& routing)
 {
@@ -17,9 +17,14 @@ uint8_t PackChannelOutput(const MidiChannelOutputRouting& routing)
 
 void UnpackChannelOutput(uint8_t packed, MidiChannelOutputRouting& routing)
 {
-    routing.notes     = (packed & 0x01) != 0;
-    routing.ccs       = (packed & 0x02) != 0;
-    routing.programs  = (packed & 0x04) != 0;
+    routing.notes    = (packed & 0x01) != 0;
+    routing.ccs      = (packed & 0x02) != 0;
+    routing.programs = (packed & 0x04) != 0;
+}
+
+bool ValidMode(uint8_t raw)
+{
+    return raw <= static_cast<uint8_t>(MidiOutputMode::Matrix);
 }
 
 void WriteConfig(uint8_t* out, const MidiRoutingConfig& config)
@@ -29,66 +34,69 @@ void WriteConfig(uint8_t* out, const MidiRoutingConfig& config)
     out[2] = kMagic[2];
     out[3] = kMagic[3];
     out[4] = kVersion;
-    out[5] = (config.usb.transport ? 0x01 : 0x00) | (config.usb.clock ? 0x02 : 0x00);
-    out[6] = (config.uart.transport ? 0x01 : 0x00) | (config.uart.clock ? 0x02 : 0x00);
+    out[5] = static_cast<uint8_t>(config.usb.mode);
+    out[6] = static_cast<uint8_t>(config.uart.mode);
+    out[7] = (config.usb.transport ? 0x01 : 0x00)
+             | (config.usb.clock ? 0x02 : 0x00);
+    out[8] = (config.uart.transport ? 0x01 : 0x00)
+             | (config.uart.clock ? 0x02 : 0x00);
+    size_t offset = 9;
     for(size_t ch = 0; ch < 16; ch++)
-        out[7 + ch] = PackChannelOutput(config.usb.channels[ch]);
+        out[offset++] = PackChannelOutput(config.usb.channels[ch]);
     for(size_t ch = 0; ch < 16; ch++)
-        out[23 + ch] = PackChannelOutput(config.uart.channels[ch]);
-    out[7 + 16 + 16] = config.usb_in_to_uart ? 1 : 0;
-    out[8 + 16 + 16] = config.uart_in_to_usb ? 1 : 0;
+        out[offset++] = config.usb.channels[ch].destination_channel;
+    for(size_t ch = 0; ch < 16; ch++)
+        out[offset++] = PackChannelOutput(config.uart.channels[ch]);
+    for(size_t ch = 0; ch < 16; ch++)
+        out[offset++] = config.uart.channels[ch].destination_channel;
+    out[offset++] = config.usb_in_to_uart ? 1 : 0;
+    out[offset++] = config.uart_in_to_usb ? 1 : 0;
 }
 
 bool ReadConfig(const uint8_t* in, MidiRoutingConfig& config)
 {
     if(in[0] != kMagic[0] || in[1] != kMagic[1] || in[2] != kMagic[2]
-       || in[3] != kMagic[3])
+       || in[3] != kMagic[3] || in[4] != kVersion)
         return false;
 
-    if(in[4] == 1)
-    {
-        if((in[5] & ~0x1F) != 0 || (in[6] & ~0x1F) != 0 || in[7] > 1 || in[8] > 1)
-            return false;
-
-        const uint8_t usb_packed  = in[5];
-        const uint8_t uart_packed = in[6];
-        config.usb.transport      = (usb_packed & 0x08) != 0;
-        config.usb.clock          = (usb_packed & 0x10) != 0;
-        config.uart.transport     = (uart_packed & 0x08) != 0;
-        config.uart.clock         = (uart_packed & 0x10) != 0;
-        for(size_t ch = 0; ch < 16; ch++)
-        {
-            config.usb.channels[ch].notes    = (usb_packed & 0x01) != 0;
-            config.usb.channels[ch].ccs      = (usb_packed & 0x02) != 0;
-            config.usb.channels[ch].programs = (usb_packed & 0x04) != 0;
-            config.uart.channels[ch].notes    = (uart_packed & 0x01) != 0;
-            config.uart.channels[ch].ccs      = (uart_packed & 0x02) != 0;
-            config.uart.channels[ch].programs = (uart_packed & 0x04) != 0;
-        }
-        config.usb_in_to_uart = in[7] != 0;
-        config.uart_in_to_usb = in[8] != 0;
-        return true;
-    }
-
-    if(in[4] != kVersion)
+    if(!ValidMode(in[5]) || !ValidMode(in[6]) || (in[7] & ~0x03) != 0
+       || (in[8] & ~0x03) != 0)
         return false;
 
-    if((in[5] & ~0x03) != 0 || (in[6] & ~0x03) != 0 || in[37] > 1 || in[38] > 1)
-        return false;
+    config.usb.mode       = static_cast<MidiOutputMode>(in[5]);
+    config.uart.mode      = static_cast<MidiOutputMode>(in[6]);
+    config.usb.transport  = (in[7] & 0x01) != 0;
+    config.usb.clock      = (in[7] & 0x02) != 0;
+    config.uart.transport = (in[8] & 0x01) != 0;
+    config.uart.clock     = (in[8] & 0x02) != 0;
 
-    config.usb.transport  = (in[5] & 0x01) != 0;
-    config.usb.clock      = (in[5] & 0x02) != 0;
-    config.uart.transport = (in[6] & 0x01) != 0;
-    config.uart.clock     = (in[6] & 0x02) != 0;
+    size_t offset = 9;
     for(size_t ch = 0; ch < 16; ch++)
     {
-        if((in[7 + ch] & ~0x07) != 0 || (in[23 + ch] & ~0x07) != 0)
+        if((in[offset] & ~0x07) != 0)
             return false;
-        UnpackChannelOutput(in[7 + ch], config.usb.channels[ch]);
-        UnpackChannelOutput(in[23 + ch], config.uart.channels[ch]);
+        UnpackChannelOutput(in[offset++], config.usb.channels[ch]);
     }
-    config.usb_in_to_uart = in[37] != 0;
-    config.uart_in_to_usb = in[38] != 0;
+    for(size_t ch = 0; ch < 16; ch++)
+    {
+        if(in[offset] > 15)
+            return false;
+        config.usb.channels[ch].destination_channel = in[offset++];
+    }
+    for(size_t ch = 0; ch < 16; ch++)
+    {
+        if((in[offset] & ~0x07) != 0)
+            return false;
+        UnpackChannelOutput(in[offset++], config.uart.channels[ch]);
+    }
+    for(size_t ch = 0; ch < 16; ch++)
+    {
+        if(in[offset] > 15)
+            return false;
+        config.uart.channels[ch].destination_channel = in[offset++];
+    }
+    config.usb_in_to_uart = in[offset++] != 0;
+    config.uart_in_to_usb = in[offset++] != 0;
     return true;
 }
 } // namespace
@@ -103,7 +111,7 @@ bool LoadMidiRoutingConfig(const char* path, MidiRoutingConfig& config)
     UINT read = 0;
     const FRESULT read_result  = f_read(&file, data, kFileSize, &read);
     const FRESULT close_result = f_close(&file);
-    if(read_result != FR_OK || close_result != FR_OK || read < 9)
+    if(read_result != FR_OK || close_result != FR_OK || read != kFileSize)
         return false;
 
     return ReadConfig(data, config);
@@ -141,11 +149,8 @@ bool SaveMidiRoutingConfig(const char* path,
         progress_fn(PersistWriteStage::Write, progress_ctx);
     UINT written = 0;
     const FRESULT write_result = f_write(&file, data, kFileSize, &written);
-    if(write_result != FR_OK)
-    {
-        if(result_code != nullptr)
-            *result_code = static_cast<int>(write_result);
-    }
+    if(write_result != FR_OK && result_code != nullptr)
+        *result_code = static_cast<int>(write_result);
     if(failed_stage != nullptr)
         *failed_stage = PersistWriteStage::Close;
     if(progress_fn != nullptr)

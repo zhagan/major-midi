@@ -14,12 +14,19 @@ class UiRenderer
     using DisplayT = daisy::OledDisplay<daisy::SSD130xI2c128x64Driver>;
 
     void Init();
-    void ShowSplash();
-    void RenderBlank();
-    void RenderScreenSaver(uint32_t now_ms);
-    void Render(const AppState& state, const MediaLibrary& library, uint32_t now_ms);
+    void ShowSplash(bool chunked = false);
+    void RenderScreenSaver(uint32_t now_ms, bool chunked = false);
+    void SetDisplayXOffset(uint8_t offset);
+    void Render(const AppState&    state,
+                const MediaLibrary& library,
+                uint32_t            now_ms,
+                bool                chunked = false);
+    void ServiceChunkedUpdate(uint8_t max_bytes = 16);
+    bool IsChunkedUpdateActive() const;
 
   private:
+    void Present(bool chunked);
+
     DisplayT display_;
     int      saver_x_              = 18;
     int      saver_y_              = 12;

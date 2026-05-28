@@ -18,6 +18,7 @@ CPP_SOURCES = \
   src/midi/smf_player.cpp \
   src/midi/major_midi_settings.cpp \
   src/midi/media_library.cpp \
+  src/midi/scheduler.cpp \
   src/clock_sync.cpp \
   src/persist/boot_state_persist.cpp \
   src/persist/persist_file.cpp \

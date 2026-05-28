@@ -30,6 +30,7 @@ class MixerTransport
                       daisy::AudioHandle::OutputBuffer out,
                       size_t                           size);
     void Update(const AppState& state);
+    void SyncExternalTick(uint64_t tick, bool force_reseek = false);
     void HandleMidiMessage(daisy::MidiEvent msg, const AppState& state);
     void ConsumeChannelActivity(uint8_t out[16]);
     bool ChannelGateActive(uint8_t ch) const;
@@ -85,6 +86,7 @@ class MixerTransport
     void FlushLoopBoundaryNotes();
     bool MaybeWrapLoopParser(const AppState& state, uint64_t sample_now);
     void RemapQueuedEventTimes(uint64_t sample_now, double ratio);
+    void ShiftQueuedEventTimes(uint64_t sample_now, int64_t delta_samples);
 
     void StartPlayback(const AppState& state);
     void StopPlayback(const AppState& state);

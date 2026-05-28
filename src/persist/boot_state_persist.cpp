@@ -11,12 +11,20 @@ namespace
 {
 static constexpr char    kBootStatePath[] = "0:/major_midi_boot.cfg";
 static constexpr uint8_t kMagic[4]        = {'M', 'M', 'B', 'T'};
-static constexpr uint8_t kVersion         = 3;
+static constexpr uint8_t kVersion         = 6;
+static constexpr size_t  kLegacyNameMax   = 32;
+static constexpr size_t  kLegacyTimeoutOffset = 5 + kLegacyNameMax;
+static constexpr size_t  kLegacyKnobModeOffset = kLegacyTimeoutOffset + 2;
+static constexpr size_t  kLegacyEncoderDirOffset = kLegacyKnobModeOffset + 1;
+static constexpr size_t  kLegacyFreezeUiOffset = kLegacyEncoderDirOffset + 1;
+static constexpr size_t  kLegacyFileSize = kLegacyFreezeUiOffset + 1;
 static constexpr size_t  kNameOffset      = 5;
-static constexpr size_t  kTimeoutOffset   = kNameOffset + MediaLibrary::kNameMax;
+static constexpr size_t  kTimeoutOffset   = kNameOffset + MediaLibrary::kPathMax;
 static constexpr size_t  kKnobModeOffset  = kTimeoutOffset + 2;
 static constexpr size_t  kEncoderDirOffset = kKnobModeOffset + 1;
-static constexpr size_t  kFileSize        = kEncoderDirOffset + 1;
+static constexpr size_t  kFreezeUiOffset  = kEncoderDirOffset + 1;
+static constexpr size_t  kOledXOffsetOffset = kFreezeUiOffset + 1;
+static constexpr size_t  kFileSize        = kOledXOffsetOffset + 1;
 
 uint16_t ReadUint16BE(const uint8_t* data)
 {
@@ -38,6 +46,12 @@ bool ValidEncoderDirection(uint8_t raw)
 {
     return raw <= static_cast<uint8_t>(EncoderDirection::Reversed);
 }
+
+bool ValidOledXOffset(uint8_t raw)
+{
+    return raw <= 8;
+}
+
 } // namespace
 
 bool LoadBootState(AppState& state, char* midi_name, size_t midi_name_sz)
@@ -54,7 +68,7 @@ bool LoadBootState(AppState& state, char* midi_name, size_t midi_name_sz)
     UINT read = 0;
     const FRESULT read_result  = f_read(&file, data, kFileSize, &read);
     const FRESULT close_result = f_close(&file);
-    if(read_result != FR_OK || close_result != FR_OK || read < (5 + MediaLibrary::kNameMax))
+    if(read_result != FR_OK || close_result != FR_OK || read < (5 + kLegacyNameMax))
         return false;
     if(data[0] != kMagic[0] || data[1] != kMagic[1] || data[2] != kMagic[2] || data[3] != kMagic[3])
         return false;
@@ -63,12 +77,24 @@ bool LoadBootState(AppState& state, char* midi_name, size_t midi_name_sz)
     if(version < 1 || version > kVersion)
         return false;
 
-    const size_t copy_len = MediaLibrary::kNameMax < (midi_name_sz - 1) ? MediaLibrary::kNameMax
-                                                                         : (midi_name_sz - 1);
+    const size_t name_field_sz = version >= 5 ? MediaLibrary::kPathMax : kLegacyNameMax;
+    const size_t copy_len = name_field_sz < (midi_name_sz - 1) ? name_field_sz
+                                                                : (midi_name_sz - 1);
     std::memcpy(midi_name, data + kNameOffset, copy_len);
     midi_name[copy_len] = '\0';
 
-    if(version >= 2 && read >= kFileSize)
+    if(version >= 6 && read >= kFileSize)
+    {
+        const uint16_t timeout_s = ReadUint16BE(data + kTimeoutOffset);
+        state.screen_saver_timeout_s = timeout_s;
+        if(ValidKnobPickupMode(data[kKnobModeOffset]))
+            state.knob_pickup_mode = static_cast<KnobPickupMode>(data[kKnobModeOffset]);
+        if(ValidEncoderDirection(data[kEncoderDirOffset]))
+            state.encoder_direction = static_cast<EncoderDirection>(data[kEncoderDirOffset]);
+        if(ValidOledXOffset(data[kOledXOffsetOffset]))
+            state.oled_x_offset = data[kOledXOffsetOffset];
+    }
+    else if(version >= 5 && read >= kFreezeUiOffset + 1)
     {
         const uint16_t timeout_s = ReadUint16BE(data + kTimeoutOffset);
         state.screen_saver_timeout_s = timeout_s;
@@ -77,12 +103,21 @@ bool LoadBootState(AppState& state, char* midi_name, size_t midi_name_sz)
         if(ValidEncoderDirection(data[kEncoderDirOffset]))
             state.encoder_direction = static_cast<EncoderDirection>(data[kEncoderDirOffset]);
     }
-    else if(version >= 2 && read >= kKnobModeOffset + 1)
+    else if(version >= 3 && read >= kLegacyEncoderDirOffset + 1)
     {
-        const uint16_t timeout_s = ReadUint16BE(data + kTimeoutOffset);
+        const uint16_t timeout_s = ReadUint16BE(data + kLegacyTimeoutOffset);
         state.screen_saver_timeout_s = timeout_s;
-        if(ValidKnobPickupMode(data[kKnobModeOffset]))
-            state.knob_pickup_mode = static_cast<KnobPickupMode>(data[kKnobModeOffset]);
+        if(ValidKnobPickupMode(data[kLegacyKnobModeOffset]))
+            state.knob_pickup_mode = static_cast<KnobPickupMode>(data[kLegacyKnobModeOffset]);
+        if(ValidEncoderDirection(data[kLegacyEncoderDirOffset]))
+            state.encoder_direction = static_cast<EncoderDirection>(data[kLegacyEncoderDirOffset]);
+    }
+    else if(version >= 2 && read >= kLegacyKnobModeOffset + 1)
+    {
+        const uint16_t timeout_s = ReadUint16BE(data + kLegacyTimeoutOffset);
+        state.screen_saver_timeout_s = timeout_s;
+        if(ValidKnobPickupMode(data[kLegacyKnobModeOffset]))
+            state.knob_pickup_mode = static_cast<KnobPickupMode>(data[kLegacyKnobModeOffset]);
     }
     return midi_name[0] != '\0';
 }
@@ -100,12 +135,14 @@ bool SaveBootState(const AppState& state, const char* midi_name)
     data[4] = kVersion;
 
     const size_t name_len = std::strlen(midi_name);
-    const size_t copy_len = name_len < (MediaLibrary::kNameMax - 1) ? name_len
-                                                                    : (MediaLibrary::kNameMax - 1);
+    const size_t copy_len = name_len < (MediaLibrary::kPathMax - 1) ? name_len
+                                                                    : (MediaLibrary::kPathMax - 1);
     std::memcpy(data + kNameOffset, midi_name, copy_len);
     WriteUint16BE(data + kTimeoutOffset, state.screen_saver_timeout_s);
     data[kKnobModeOffset] = static_cast<uint8_t>(state.knob_pickup_mode);
     data[kEncoderDirOffset] = static_cast<uint8_t>(state.encoder_direction);
+    data[kFreezeUiOffset] = 0u;
+    data[kOledXOffsetOffset] = state.oled_x_offset;
 
     FIL&          file        = SharedPersistFile();
     const FRESULT open_result = f_open(&file, kBootStatePath, FA_CREATE_ALWAYS | FA_WRITE);

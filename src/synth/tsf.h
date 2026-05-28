@@ -2040,9 +2040,10 @@ extern "C"
             tsf_voice_envelope_nextsegment(e, e->segment, outSampleRate);
     }
 
-    static void tsf_voice_lowpass_setup(struct tsf_voice_lowpass* e, float Fc)
+    static void
+    tsf_voice_lowpass_setup(struct tsf_voice_lowpass* e, float Fc, float QInv)
     {
-        // Original TSF low-pass design: cheaper than the current SVF path.
+        e->QInv = QInv;
         double K    = TSF_TAN(TSF_PI * Fc);
         double KK   = K * K;
         double norm = 1.0 / (1.0 + K * e->QInv + KK);
@@ -2288,9 +2289,14 @@ extern "C"
                                   + v->modenv.level * tmpModEnvToFilterFc;
                 float lowpassFc = (fres <= 13500 ? tsf_cents2Hertz(fres) / tmpSampleRate
                                                  : 1.0f);
+                float lowpassFilterQDB = renderInitialFilterQ / 10.0f;
+                float lowpassQInv
+                    = (float)(1.0
+                              / TSF_POW(10.0, (lowpassFilterQDB / 20.0f)));
                 tmpLowpass.active = (lowpassFc < 0.499f);
                 if(tmpLowpass.active)
-                    tsf_voice_lowpass_setup(&tmpLowpass, lowpassFc);
+                    tsf_voice_lowpass_setup(
+                        &tmpLowpass, lowpassFc, lowpassQInv);
             }
 
             if(dynamicPitchRatio)
@@ -2902,12 +2908,13 @@ extern "C"
                                    / f->outSampleRate
                              : 1.0f);
             lowpassFilterQDB   = region->initialFilterQ / 10.0f;
-            voice->lowpass.QInv = 1.0 / TSF_POW(10.0, (lowpassFilterQDB / 20.0));
             voice->lowpass.z1   = 0.0;
             voice->lowpass.z2   = 0.0;
             voice->lowpass.active = (lowpassFc < 0.499f);
             if(voice->lowpass.active)
-                tsf_voice_lowpass_setup(&voice->lowpass, lowpassFc);
+                tsf_voice_lowpass_setup(&voice->lowpass,
+                                        lowpassFc,
+                                        (float)(1.0 / TSF_POW(10.0, (lowpassFilterQDB / 20.0f))));
             voice->initialFilterFc = region->initialFilterFc;
             voice->initialFilterQ  = region->initialFilterQ;
             voice->vibLfoToPitch   = region->vibLfoToPitch;
