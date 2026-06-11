@@ -17,6 +17,7 @@
 #include "song_config_persist.h"
 #include "smf_player.h"
 #include "synth_tsf.h"
+#include "sysex_file_transfer.h"
 #include "ui_controller.h"
 #include "ui_input.h"
 #include "ui_renderer.h"
@@ -54,6 +55,7 @@ CvGateEngine      cv_gate_engine;
 AppState          app_state;
 MidiUsbHandler    usb_midi;
 MidiUartHandler   uart_midi;
+SysExFileTransfer sysex_file_transfer;
 ClockSync         midi_clock_sync;
 ClockSync         gate_clock_sync;
 TimerHandle       midi_tx_timer;
@@ -87,6 +89,10 @@ uint8_t                      uart_running_status = 0;
 
 void     UpdateMidiMonitor(const MidiEvent& msg);
 void     UpdateMidiMonitor(const MidiEv& ev);
+void     RefreshMediaLibrary(void*);
+void     CompleteMidiUpload(bool success, void*);
+void     PrepareForMidiUpload(uint32_t now_ms);
+void     StopAudioIfRunning();
 uint16_t TickToMeasure(uint64_t tick, const SmfPlayer& player);
 uint8_t  TickToBeat(uint64_t tick, const SmfPlayer& player);
 void SyncLoopDisplayFieldsFromTicks(AppState& state, const SmfPlayer& player);
@@ -734,12 +740,74 @@ void UpdateMidiMonitor(const MidiEv& ev)
     }
 }
 
+void RefreshMediaLibrary(void*)
+{
+    media_library.Scan();
+}
+
+void CompleteMidiUpload(bool success, void*)
+{
+    app_state.pending_midi_load = false;
+    app_state.pending_sf2_load  = false;
+    app_state.loading_midi      = false;
+    app_state.loading_sf2       = false;
+    app_state.ui_mode           = UiMode::Performance;
+    app_state.menu_page         = MenuPage::Main;
+    app_state.menu_page_cursor  = 0;
+    app_state.menu_root_cursor  = 0;
+    app_state.menu_editing      = false;
+
+    if(media_library.MidiCount() > 0 && app_state.selected_midi_index >= media_library.MidiCount())
+        app_state.selected_midi_index = 0;
+    if(media_library.SoundFontCount() > 0
+       && app_state.selected_sf2_index >= media_library.SoundFontCount())
+        app_state.selected_sf2_index = 0;
+
+    if(media_library.SoundFontCount() > 0)
+        app_state.pending_sf2_load = true;
+    if(media_library.MidiCount() > 0)
+        app_state.pending_midi_load = true;
+
+    SetOverlay(app_state, success ? "USB MIDI Done" : "USB MIDI Aborted", System::GetNow(), 1200);
+}
+
+bool IsUploadTransferCommand(const MidiEvent& msg, uint8_t command)
+{
+    return msg.type == MidiMessageType::SystemCommon
+           && msg.sc_type == SystemCommonType::SystemExclusive
+           && msg.sysex_message_len >= 4 && msg.sysex_data[0] == 0x7D
+           && msg.sysex_data[1] == 'M' && msg.sysex_data[2] == 'M'
+           && msg.sysex_data[3] == command;
+}
+
+void PrepareForMidiUpload(uint32_t now_ms)
+{
+    app_state.transport_playing = false;
+
+    if(audio_started)
+    {
+        StartAudioFade(0.0f, kAudioFadeMs);
+        WaitForAudioFadeComplete(kAudioFadeMs + 8);
+    }
+
+    StopAudioIfRunning();
+    SetAudioOutputGainImmediate(0.0f);
+    transport.Reset(app_state);
+    smf_player.Close();
+    SynthUnloadSf2();
+    SetOverlay(app_state, "USB MIDI Upload", now_ms, 1000);
+}
+
 void ServiceIncomingMidi()
 {
     usb_midi.Listen();
     while(usb_midi.HasEvents())
     {
         const auto msg = usb_midi.PopEvent();
+        if(IsUploadTransferCommand(msg, 0x01))
+            PrepareForMidiUpload(System::GetNow());
+        if(sysex_file_transfer.HandleUsbMidiEvent(msg, usb_midi))
+            continue;
         if(msg.type == MidiMessageType::SystemRealTime)
         {
             switch(msg.srt_type)
@@ -1067,8 +1135,6 @@ bool EnsureAudioRunning()
                size_t                    size)
             {
                 hw.ProcessAnalogControls();
-                ui_input.ControlRateTick();
-                ServiceIncomingMidi();
                 for(size_t i = 0; i < size; i++)
                 {
                     const uint64_t sample_time = sync_sample_counter + i;
@@ -1417,6 +1483,7 @@ int main(void)
     usb_cfg.transport_config.tx_retry_count = 10;
     usb_midi.Init(usb_cfg);
     usb_midi.StartReceive();
+    sysex_file_transfer.Init(RefreshMediaLibrary, CompleteMidiUpload, nullptr);
 
     MidiUartHandler::Config uart_cfg{};
     uart_cfg.transport_config.periph = UartHandler::Config::Peripheral::UART_4;
@@ -1456,6 +1523,11 @@ int main(void)
             ServiceMidiOutputs();
         }
 
+        // Always service MIDI from the main loop. SysEx upload start handling
+        // can stop audio and touch FatFs, which is not safe from the audio callback.
+        ServiceIncomingMidi();
+
+        ui_input.ControlRateTick();
         ui_input.Sample(raw);
         if(app_state.encoder_direction == EncoderDirection::Reversed)
             raw.encoder_delta = -raw.encoder_delta;

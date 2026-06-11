@@ -52,6 +52,14 @@ PAGES = [
     },
 ]
 
+NAV_LINKS = [
+    ("index.html", "Home"),
+    ("user.html", "User Manual"),
+    ("dev.html", "Dev Resources"),
+    ("order.html", "Order"),
+    ("transfer.html", "Transfer MIDI"),
+]
+
 
 def slugify(text: str) -> str:
     text = text.lower()
@@ -280,9 +288,9 @@ def build_html(
     del title
     page_nav = []
     current_output = Path(page["output"]).name  # type: ignore[arg-type]
-    for item in PAGES:
-        href = html.escape(Path(item["output"]).name)  # type: ignore[arg-type]
-        label = html.escape(str(item["label"]))
+    for href_raw, label_raw in NAV_LINKS:
+        href = html.escape(href_raw)
+        label = html.escape(label_raw)
         active = ' class="active"' if href == current_output else ""
         page_nav.append(f'          <a{active} href="{href}">{label}</a>')
 

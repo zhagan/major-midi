@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Transfer MIDI | Major MIDI</title>
+    <meta
+      name="description"
+      content="Upload MIDI files to the Major MIDI SD card over USB MIDI SysEx from the browser."
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <p class="kicker">Major MIDI</p>
+          <h1>Transfer MIDI</h1>
+        </div>
+
+        <p class="nav-label">Pages</p>
+        <nav class="nav page-nav">
+          <a href="index.html">Home</a>
+          <a href="user.html">User Manual</a>
+          <a href="dev.html">Dev Resources</a>
+          <a href="order.html">Order</a>
+          <a class="active" href="transfer.html">Transfer MIDI</a>
+        </nav>
+
+        <p class="nav-label">On This Page</p>
+        <nav class="nav section-nav">
+          <a href="#connect">Connect</a>
+          <a href="#upload">Upload</a>
+          <a href="#what-it-does">What It Does</a>
+          <a href="#requirements">Requirements</a>
+        </nav>
+      </aside>
+
+      <main class="main">
+        <section class="hero" id="top">
+          <div class="hero-grid">
+            <div>
+              <h2>Transfer MIDI</h2>
+              <p>Send `.mid` files directly to `0:/midi` on the Major MIDI SD card over USB MIDI SysEx.</p>
+            </div>
+            <div class="hero-card">
+              <h3>Before You Start</h3>
+              <ul>
+                <li>Use a Chromium-based browser with Web MIDI SysEx enabled.</li>
+                <li>Connect the module over USB and power it normally.</li>
+                <li>Keep the SD card inserted while uploading.</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="connect">
+          <h2>Connect</h2>
+          <div class="uploader-card">
+            <div class="transfer-grid">
+              <div class="field">
+                <label for="midi-input">MIDI Input From Major MIDI</label>
+                <select id="midi-input"></select>
+              </div>
+              <div class="field">
+                <label for="midi-output">MIDI Output To Major MIDI</label>
+                <select id="midi-output"></select>
+              </div>
+            </div>
+
+            <div class="button-row">
+              <button id="enable-midi">Enable Web MIDI</button>
+              <button id="test-link" class="secondary" disabled>Test Link</button>
+              <button id="refresh-ports" class="secondary" disabled>Refresh Ports</button>
+            </div>
+
+            <div id="connection-status" class="status-pill warn">Web MIDI permission not granted yet.</div>
+          </div>
+        </section>
+
+        <section class="section" id="upload">
+          <h2>Upload</h2>
+          <div class="uploader-card">
+            <div class="dropzone" id="dropzone">
+              <strong>Drop `.mid` or `.midi` files here</strong>
+              <p>Files are uploaded one at a time and written to <code>0:/midi</code>.</p>
+              <div class="button-row" style="justify-content:center;">
+                <button id="choose-files" class="secondary">Choose Files</button>
+              </div>
+              <input id="file-input" type="file" accept=".mid,.midi" multiple hidden />
+            </div>
+
+            <div class="progress" aria-hidden="true">
+              <div id="progress-bar" class="progress-bar"></div>
+            </div>
+
+            <div id="transfer-status" class="status-pill">Idle.</div>
+
+            <div class="grid-2">
+              <div class="mini-card">
+                <h4>Queue</h4>
+                <ol id="queue" class="queue"></ol>
+              </div>
+              <div class="mini-card">
+                <h4>Session Log</h4>
+                <pre id="log" class="log">Waiting for Web MIDI access.</pre>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="what-it-does">
+          <h2>What It Does</h2>
+          <p>This page uses a Major MIDI-specific SysEx upload protocol. Each file is sent in small acknowledged chunks so the module can write safely to the SD card without overrunning USB MIDI receive.</p>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Behavior</th>
+                  <th>Result</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Upload target</td>
+                  <td><code>0:/midi/&lt;filename&gt;</code></td>
+                </tr>
+                <tr>
+                  <td>Existing file name match</td>
+                  <td>Overwritten</td>
+                </tr>
+                <tr>
+                  <td>Accepted files</td>
+                  <td><code>.mid</code> and <code>.midi</code></td>
+                </tr>
+                <tr>
+                  <td>After a completed upload</td>
+                  <td>Major MIDI rescans the media library automatically</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="section" id="requirements">
+          <h2>Requirements</h2>
+          <p class="fine-print">Web MIDI SysEx is not available in every browser. If the page cannot request SysEx permission, try current Chrome or Edge on a secure origin.</p>
+          <p class="fine-print">This page talks to the USB MIDI interface on the module. It does not mount the SD card directly.</p>
+        </section>
+
+        <div class="footer">
+          Custom transfer page for Major MIDI USB SysEx uploads.
+        </div>
+      </main>
+    </div>
+
+    <script>
+      const MANUFACTURER_ID = 0x7d;
+      const MAGIC = [0x4d, 0x4d];
+      const CMD = { start: 0x01, data: 0x02, end: 0x03, cancel: 0x04, ack: 0x7f };
+      const STATUS_TEXT = {
+        0x00: "OK",
+        0x01: "Invalid packet",
+        0x02: "Busy",
+        0x03: "File system error",
+        0x04: "Sequence mismatch",
+        0x05: "Bad filename",
+        0x06: "Decode error",
+        0x07: "No active transfer",
+      };
+      const RAW_CHUNK_SIZE = 63;
+      const ACK_TIMEOUT_MS = 5000;
+
+      let midiAccess = null;
+      let selectedInput = null;
+      let selectedOutput = null;
+      let boundInputs = [];
+      let uploadQueue = [];
+      let uploading = false;
+      let pendingAck = null;
+
+      const inputSelect = document.getElementById("midi-input");
+      const outputSelect = document.getElementById("midi-output");
+      const enableButton = document.getElementById("enable-midi");
+      const refreshButton = document.getElementById("refresh-ports");
+      const testLinkButton = document.getElementById("test-link");
+      const chooseButton = document.getElementById("choose-files");
+      const fileInput = document.getElementById("file-input");
+      const dropzone = document.getElementById("dropzone");
+      const connectionStatus = document.getElementById("connection-status");
+      const transferStatus = document.getElementById("transfer-status");
+      const progressBar = document.getElementById("progress-bar");
+      const queueList = document.getElementById("queue");
+      const logEl = document.getElementById("log");
+
+      function setStatus(el, text, tone = "") {
+        el.textContent = text;
+        el.className = "status-pill" + (tone ? " " + tone : "");
+      }
+
+      function commandName(command) {
+        switch (command) {
+          case CMD.start: return "start";
+          case CMD.data: return "data";
+          case CMD.end: return "end";
+          case CMD.cancel: return "cancel";
+          case CMD.ack: return "ack";
+          default: return `0x${command.toString(16)}`;
+        }
+      }
+
+      function bytesToHex(data) {
+        return Array.from(data, (value) => value.toString(16).padStart(2, "0")).join(" ");
+      }
+
+      function log(message) {
+        const stamp = new Date().toLocaleTimeString();
+        const line = `[${stamp}] ${message}`;
+        logEl.textContent = logEl.textContent === "Waiting for Web MIDI access." ? line : `${logEl.textContent}\n${line}`;
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      function sanitizeFilename(name) {
+        const base = name.split(/[\\/]/).pop() || "upload.mid";
+        let safe = base.replace(/[^A-Za-z0-9._ -]/g, "_").replace(/^\.+/, "");
+        if (!safe) safe = "upload.mid";
+        if (/\.midi$/i.test(safe)) safe = safe.replace(/\.midi$/i, ".mid");
+        else if (!/\.mid$/i.test(safe)) safe = `${safe}.mid`;
+        return safe.slice(0, 48);
+      }
+
+      function encode7Bit(bytes) {
+        const out = [];
+        for (let i = 0; i < bytes.length; i += 7) {
+          const block = bytes.slice(i, i + 7);
+          let msb = 0;
+          for (let j = 0; j < block.length; j++) {
+            if (block[j] & 0x80) msb |= 1 << j;
+          }
+          out.push(msb);
+          for (const value of block) out.push(value & 0x7f);
+        }
+        return out;
+      }
+
+      function buildSysEx(command, payload = []) {
+        return new Uint8Array([0xf0, MANUFACTURER_ID, ...MAGIC, command, ...payload, 0xf7]);
+      }
+
+      function requirePorts() {
+        if (!selectedInput || !selectedOutput) {
+          throw new Error("Select both the Major MIDI input and output ports first.");
+        }
+      }
+
+      function parseAck(data) {
+        if (!(data instanceof Uint8Array) || data.length < 10) return null;
+        if (data[0] !== 0xf0 || data[data.length - 1] !== 0xf7) return null;
+        if (data[1] !== MANUFACTURER_ID || data[2] !== MAGIC[0] || data[3] !== MAGIC[1]) return null;
+        if (data[4] !== CMD.ack) return null;
+        return {
+          request: data[5],
+          status: data[6],
+          value: data[7] | (data[8] << 7),
+        };
+      }
+
+      function handleAckFromPort(port, event) {
+        log(`Incoming MIDI on ${port.name || port.id}: ${bytesToHex(event.data)}`);
+        const ack = parseAck(event.data);
+        if (!ack) return;
+        log(`Received ${commandName(ack.request)} ack on ${port.name || port.id}.`);
+        if (!pendingAck) return;
+        const { command, resolve, reject, timer } = pendingAck;
+        clearTimeout(timer);
+        pendingAck = null;
+        if (ack.request !== command) {
+          reject(new Error(`Unexpected ack ${ack.request} on ${port.name || port.id} while waiting for ${commandName(command)}.`));
+          return;
+        }
+        if (ack.status !== 0x00) {
+          reject(new Error(`${STATUS_TEXT[ack.status] || "Transfer error"} (${ack.status}) from ${port.name || port.id}`));
+          return;
+        }
+        resolve(ack);
+      }
+
+      function bindAllInputs() {
+        for (const port of boundInputs) {
+          port.onmidimessage = null;
+        }
+
+        boundInputs = getPorts("input");
+        for (const port of boundInputs) {
+          port.onmidimessage = (event) => handleAckFromPort(port, event);
+        }
+      }
+
+      function setSelectedInput(port) {
+        selectedInput = port || null;
+      }
+
+      function getPorts(type) {
+        const ports = type === "input" ? midiAccess.inputs : midiAccess.outputs;
+        return Array.from(ports.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      }
+
+      function fillPortSelect(select, ports, activeId) {
+        select.innerHTML = "";
+        if (!ports.length) {
+          const option = document.createElement("option");
+          option.value = "";
+          option.textContent = "No ports available";
+          select.appendChild(option);
+          return;
+        }
+
+        for (const port of ports) {
+          const option = document.createElement("option");
+          option.value = port.id;
+          option.textContent = `${port.name || "Unnamed"}${port.manufacturer ? ` (${port.manufacturer})` : ""}`;
+          if (port.id === activeId) option.selected = true;
+          select.appendChild(option);
+        }
+      }
+
+      function autoPickPortId(ports) {
+        const major = ports.find((port) => /major midi/i.test(`${port.name || ""} ${port.manufacturer || ""}`));
+        return major ? major.id : (ports[0] ? ports[0].id : "");
+      }
+
+      function refreshPorts() {
+        if (!midiAccess) return;
+
+        const inputs = getPorts("input");
+        const outputs = getPorts("output");
+        const nextInputId = inputs.some((port) => port.id === inputSelect.value) ? inputSelect.value : autoPickPortId(inputs);
+        const nextOutputId = outputs.some((port) => port.id === outputSelect.value) ? outputSelect.value : autoPickPortId(outputs);
+
+        fillPortSelect(inputSelect, inputs, nextInputId);
+        fillPortSelect(outputSelect, outputs, nextOutputId);
+
+        selectedOutput = outputs.find((port) => port.id === nextOutputId) || null;
+        setSelectedInput(inputs.find((port) => port.id === nextInputId) || null);
+        bindAllInputs();
+
+        if (inputs.length || outputs.length) {
+          log(`Ports: inputs=${inputs.map((port) => port.name || port.id).join(", ") || "none"} | outputs=${outputs.map((port) => port.name || port.id).join(", ") || "none"}`);
+        }
+
+        if (selectedInput && selectedOutput) {
+          setStatus(connectionStatus, `Ready: send to ${selectedOutput.name || "output"}, listen on all inputs`, "good");
+        } else {
+          setStatus(connectionStatus, "Select both Major MIDI ports to upload.", "warn");
+        }
+      }
+
+      async function enableMidi() {
+        if (!navigator.requestMIDIAccess) {
+          setStatus(connectionStatus, "This browser does not support Web MIDI.", "bad");
+          log("Web MIDI API is unavailable in this browser.");
+          return;
+        }
+
+        try {
+          midiAccess = await navigator.requestMIDIAccess({ sysex: true });
+          midiAccess.onstatechange = refreshPorts;
+          refreshPorts();
+          refreshButton.disabled = false;
+          testLinkButton.disabled = false;
+          log("Web MIDI SysEx access granted.");
+        } catch (error) {
+          setStatus(connectionStatus, "Web MIDI SysEx permission was denied.", "bad");
+          log(`Failed to enable Web MIDI: ${error.message}`);
+        }
+      }
+
+      function updateQueue() {
+        queueList.innerHTML = "";
+        for (const item of uploadQueue) {
+          const li = document.createElement("li");
+          li.textContent = item.name;
+          queueList.appendChild(li);
+        }
+      }
+
+      function enqueueFiles(fileList) {
+        const accepted = Array.from(fileList).filter((file) => /\.mid(i)?$/i.test(file.name));
+        if (!accepted.length) {
+          log("No .mid or .midi files were added.");
+          return;
+        }
+
+        uploadQueue.push(...accepted);
+        updateQueue();
+        log(`Queued ${accepted.length} file(s).`);
+        if (!uploading) processQueue();
+      }
+
+      function sendAndWait(command, payload) {
+        requirePorts();
+        if (pendingAck) throw new Error("Another transfer packet is still waiting for ack.");
+
+        return new Promise((resolve, reject) => {
+          const timer = window.setTimeout(() => {
+            pendingAck = null;
+            reject(new Error(`Timed out waiting for Major MIDI ack to ${commandName(command)}.`));
+          }, ACK_TIMEOUT_MS);
+
+          log(`Sent ${commandName(command)} packet.`);
+          pendingAck = { command, resolve, reject, timer };
+          selectedOutput.send(buildSysEx(command, payload));
+        });
+      }
+
+      async function testLink() {
+        try {
+          setStatus(connectionStatus, "Testing Major MIDI link...", "warn");
+          await sendAndWait(CMD.cancel, []);
+          setStatus(connectionStatus, `Link OK: ${selectedOutput.name || "output"}`, "good");
+          log("Major MIDI replied to cancel test packet.");
+        } catch (error) {
+          setStatus(connectionStatus, error.message, "bad");
+          log(`Link test failed: ${error.message}`);
+        }
+      }
+
+      async function uploadFile(file) {
+        const safeName = sanitizeFilename(file.name);
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const encoder = new TextEncoder();
+        const nameBytes = Array.from(encoder.encode(safeName).slice(0, 48));
+        const totalChunks = Math.ceil(bytes.length / RAW_CHUNK_SIZE);
+
+        log(`Starting ${safeName} (${bytes.length} bytes, ${totalChunks} chunk${totalChunks === 1 ? "" : "s"}).`);
+        setStatus(transferStatus, `Uploading ${safeName}...`, "warn");
+        progressBar.style.width = "0%";
+
+        await sendAndWait(CMD.start, [nameBytes.length, ...nameBytes]);
+
+        let sequence = 0;
+        try {
+          for (let offset = 0; offset < bytes.length; offset += RAW_CHUNK_SIZE) {
+            const chunk = Array.from(bytes.slice(offset, offset + RAW_CHUNK_SIZE));
+            const packed = encode7Bit(chunk);
+            await sendAndWait(CMD.data, [sequence & 0x7f, (sequence >> 7) & 0x7f, chunk.length, ...packed]);
+            sequence += 1;
+            const pct = bytes.length ? Math.round((Math.min(offset + chunk.length, bytes.length) / bytes.length) * 100) : 100;
+            progressBar.style.width = `${pct}%`;
+            setStatus(transferStatus, `Uploading ${safeName}: ${pct}%`, "warn");
+          }
+
+          await sendAndWait(CMD.end, [sequence & 0x7f, (sequence >> 7) & 0x7f]);
+        } catch (error) {
+          try {
+            if (selectedOutput) selectedOutput.send(buildSysEx(CMD.cancel));
+          } catch (_) {}
+          throw error;
+        }
+
+        progressBar.style.width = "100%";
+        setStatus(transferStatus, `Finished ${safeName}.`, "good");
+        log(`Finished ${safeName}.`);
+      }
+
+      async function processQueue() {
+        if (uploading) return;
+        uploading = true;
+
+        try {
+          while (uploadQueue.length) {
+            const file = uploadQueue.shift();
+            updateQueue();
+            await uploadFile(file);
+          }
+        } catch (error) {
+          setStatus(transferStatus, error.message, "bad");
+          log(`Upload failed: ${error.message}`);
+        } finally {
+          uploading = false;
+          if (!uploadQueue.length && !transferStatus.classList.contains("bad")) {
+            setStatus(transferStatus, "Idle.", "");
+          }
+        }
+      }
+
+      enableButton.addEventListener("click", enableMidi);
+      refreshButton.addEventListener("click", refreshPorts);
+      testLinkButton.addEventListener("click", testLink);
+
+      inputSelect.addEventListener("change", () => {
+        const next = getPorts("input").find((port) => port.id === inputSelect.value) || null;
+        setSelectedInput(next);
+        refreshPorts();
+      });
+
+      outputSelect.addEventListener("change", () => {
+        selectedOutput = getPorts("output").find((port) => port.id === outputSelect.value) || null;
+        refreshPorts();
+      });
+
+      chooseButton.addEventListener("click", () => fileInput.click());
+      fileInput.addEventListener("change", (event) => {
+        enqueueFiles(event.target.files);
+        fileInput.value = "";
+      });
+
+      ["dragenter", "dragover"].forEach((type) => {
+        dropzone.addEventListener(type, (event) => {
+          event.preventDefault();
+          dropzone.classList.add("active");
+        });
+      });
+
+      ["dragleave", "drop"].forEach((type) => {
+        dropzone.addEventListener(type, (event) => {
+          event.preventDefault();
+          dropzone.classList.remove("active");
+        });
+      });
+
+      dropzone.addEventListener("drop", (event) => {
+        enqueueFiles(event.dataTransfer.files);
+      });
+    </script>
+  </body>
+</html>
