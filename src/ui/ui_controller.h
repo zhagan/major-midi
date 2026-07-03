@@ -27,6 +27,9 @@ class UiController
     void SelectBank(uint8_t bank, uint32_t now_ms);
     void ToggleVisibleMute(uint8_t slot, uint32_t now_ms);
     void ToggleMenu(uint32_t now_ms);
+    void ExitInstrumentFocus(uint32_t now_ms, const char* overlay);
+    void MoveInstrumentFocusCursor(int32_t delta, uint32_t now_ms);
+    void AdjustInstrumentFocusValue(int32_t delta, uint32_t now_ms);
     void MoveMenuRootCursor(int32_t delta, uint32_t now_ms);
     void MoveMenuPageCursor(int32_t delta, const MediaLibrary& library, uint32_t now_ms);
     void ActivateMenuRoot(MediaLibrary& library, uint32_t now_ms);

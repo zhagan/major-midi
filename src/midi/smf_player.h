@@ -51,7 +51,6 @@ class SmfPlayer
     uint8_t GetSeekProgramState(uint8_t ch) const;
     const major_midi::MajorMidiSettings& Settings() const { return settings_; }
     major_midi::MajorMidiSettings& MutableSettings() { return settings_; }
-    bool SaveSettings();
     bool BuildLoopCache(uint32_t       start_tick,
                         uint32_t       length_ticks,
                         LoopCacheEvent* snapshot_events,

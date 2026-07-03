@@ -68,6 +68,20 @@ size_t MenuPageItemCount(const AppState& state, const MediaLibrary& library)
         return value;
     }
 
+    const char* InstrumentFocusItemLabel(uint8_t item)
+    {
+        switch(item)
+        {
+            case 0: return "Mute";
+            case 1: return "Vol";
+            case 2: return "Pan";
+            case 3: return "Rev";
+            case 4: return "Chr";
+            case 5: return "Prg";
+        }
+        return "";
+    }
+
     size_t MenuPageScrollOffset(const AppState&     state,
                                 const MediaLibrary& library)
     {
@@ -462,7 +476,7 @@ void UiRenderer::Render(const AppState&     state,
                     case 8:
                         std::snprintf(line,
                                       sizeof(line),
-                                      "%cSave To MIDI",
+                                      "%cSave Song CFG",
                                       item == state.menu_page_cursor ? '>'
                                                                      : ' ');
                         break;
@@ -1168,13 +1182,16 @@ void UiRenderer::Render(const AppState&     state,
 
         if(state.instrument_focus_active)
         {
+            const uint8_t cursor = state.instrument_focus_cursor < 6
+                                       ? state.instrument_focus_cursor
+                                       : 0;
+            const uint8_t window_start = cursor <= 2 ? 0 : cursor - 2;
             std::snprintf(
                 line,
                 sizeof(line),
-                "FOCUS %s%s",
-                state.transport_playing ? "PLY" : "STP",
-                (state.knob_page == KnobPage::Bpm && state.bpm_editing) ? "*"
-                                                                        : "");
+                "FOCUS %s %s",
+                state.instrument_focus_editing ? "EDIT" : "SEL",
+                state.transport_playing ? "PLY" : "STP");
             display_.SetCursor(0, 0);
             display_.WriteString(line, Font_6x8, true);
 
@@ -1190,38 +1207,77 @@ void UiRenderer::Render(const AppState&     state,
             display_.WriteString(line, Font_6x8, true);
 
             std::snprintf(
-                line, sizeof(line), "M:%s", midi_name[0] ? midi_name : "None");
+                line, sizeof(line), "M:%s", midi_short[0] ? midi_short : "None");
             display_.SetCursor(0, 16);
             display_.WriteString(line, Font_6x8, true);
 
-            std::snprintf(line,
-                          sizeof(line),
-                          "CH%02d PRG%03d %s",
-                          selected_channel_index + 1,
-                          static_cast<int>(effective_program) + 1,
-                          selected_channel.program_override >= 0 ? "OVR"
-                                                                 : "MID");
             display_.SetCursor(0, 24);
-            display_.WriteString(line, Font_6x8, true);
-
-            display_.SetCursor(0, 32);
             display_.WriteString(gm_name, Font_6x8, true);
 
-            std::snprintf(line,
-                          sizeof(line),
-                          "VOL%03d PAN%03d",
-                          static_cast<int>(selected_channel.volume),
-                          static_cast<int>(selected_channel.pan));
-            display_.SetCursor(0, 40);
-            display_.WriteString(line, Font_6x8, true);
+            for(uint8_t row = 0; row < 4; row++)
+            {
+                const uint8_t item = window_start + row;
+                if(item >= 6)
+                    break;
 
-            std::snprintf(line,
-                          sizeof(line),
-                          "REV%03d CHR%03d",
-                          static_cast<int>(selected_channel.reverb_send),
-                          static_cast<int>(selected_channel.chorus_send));
-            display_.SetCursor(0, 48);
-            display_.WriteString(line, Font_6x8, true);
+                char value[16];
+                switch(item)
+                {
+                    case 0:
+                        std::snprintf(
+                            value, sizeof(value), "%s", selected_channel.muted ? "On" : "Off");
+                        break;
+                    case 1:
+                        std::snprintf(value,
+                                      sizeof(value),
+                                      "%03d",
+                                      static_cast<int>(selected_channel.volume));
+                        break;
+                    case 2:
+                        std::snprintf(value,
+                                      sizeof(value),
+                                      "%03d",
+                                      static_cast<int>(selected_channel.pan));
+                        break;
+                    case 3:
+                        std::snprintf(value,
+                                      sizeof(value),
+                                      "%03d",
+                                      static_cast<int>(selected_channel.reverb_send));
+                        break;
+                    case 4:
+                        std::snprintf(value,
+                                      sizeof(value),
+                                      "%03d",
+                                      static_cast<int>(selected_channel.chorus_send));
+                        break;
+                    case 5:
+                        if(selected_channel.program_override >= 0)
+                            std::snprintf(value,
+                                          sizeof(value),
+                                          "%03d OVR",
+                                          static_cast<int>(selected_channel.program_override) + 1);
+                        else
+                            std::snprintf(value,
+                                          sizeof(value),
+                                          "%03d MID",
+                                          static_cast<int>(selected_channel.current_program) + 1);
+                        break;
+                    default:
+                        value[0] = '\0';
+                        break;
+                }
+
+                std::snprintf(line,
+                              sizeof(line),
+                              "%c%c%-4s %s",
+                              item == cursor ? '>' : ' ',
+                              (item == cursor && state.instrument_focus_editing) ? '*' : ' ',
+                              InstrumentFocusItemLabel(item),
+                              value);
+                display_.SetCursor(0, 32 + row * 8);
+                display_.WriteString(line, Font_6x8, true);
+            }
 
             if(state.overlay.until_ms > now_ms)
             {
@@ -1233,11 +1289,11 @@ void UiRenderer::Render(const AppState&     state,
             {
                 std::snprintf(line,
                               sizeof(line),
-                              "MUTE %s",
-                              selected_channel.muted ? "ON" : "OFF");
+                              "%s HOLD:X",
+                              state.instrument_focus_editing ? "EDIT" : "SELECT");
                 display_.SetCursor(0, 56);
                 display_.WriteString(line, Font_6x8, true);
-                display_.SetCursor(50, 56);
+                display_.SetCursor(86, 56);
                 display_.WriteString(visible_channels, Font_6x8, true);
             }
         }

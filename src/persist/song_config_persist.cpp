@@ -10,10 +10,12 @@ namespace major_midi
 namespace
 {
 static constexpr uint8_t kMagic[4] = {'M', 'M', 'S', 'C'};
-static constexpr uint8_t kVersion  = 8;
+static constexpr uint8_t kVersion  = 10;
 static constexpr size_t  kLegacyNameMax = 32;
 static constexpr size_t  kLegacyFileSize = 194;
-static constexpr size_t  kFileSize = 324;
+static constexpr size_t  kFileSizeV8 = 324;
+static constexpr size_t  kFileSizeV9 = 326;
+static constexpr size_t  kFileSize = 331;
 
 uint32_t ReadUint32BE(const uint8_t* data)
 {
@@ -27,6 +29,17 @@ void WriteUint32BE(uint8_t* data, uint32_t value)
     data[1] = static_cast<uint8_t>((value >> 16) & 0xFFu);
     data[2] = static_cast<uint8_t>((value >> 8) & 0xFFu);
     data[3] = static_cast<uint8_t>(value & 0xFFu);
+}
+
+uint16_t ReadUint16BE(const uint8_t* data)
+{
+    return static_cast<uint16_t>((static_cast<uint16_t>(data[0]) << 8) | data[1]);
+}
+
+void WriteUint16BE(uint8_t* data, uint16_t value)
+{
+    data[0] = static_cast<uint8_t>((value >> 8) & 0xFFu);
+    data[1] = static_cast<uint8_t>(value & 0xFFu);
 }
 
 bool ValidChannel(uint8_t ch)
@@ -138,6 +151,13 @@ void WriteConfig(uint8_t* out, const AppState& state, const char* sf2_name)
     offset += 4;
     WriteUint32BE(out + offset, state.loop_length_ticks > 0 ? state.loop_length_ticks : 1u);
     offset += 4;
+    WriteUint16BE(out + offset, state.song_bpm_override);
+    offset += 2;
+    out[offset++] = state.sf2_master_volume_max;
+    out[offset++] = state.sf2_expression_max;
+    out[offset++] = state.sf2_reverb_max;
+    out[offset++] = state.sf2_chorus_max;
+    out[offset++] = static_cast<uint8_t>(state.sf2_transpose);
     std::memset(out + offset, 0, MediaLibrary::kPathMax);
     if(sf2_name != nullptr && sf2_name[0] != '\0')
     {
@@ -204,7 +224,7 @@ bool ReadConfig(const uint8_t* in, AppState& state, char* sf2_name, size_t sf2_n
             return false;
     }
 
-    if(version != kVersion)
+    if(version < 8 || version > kVersion)
         return false;
     const uint8_t usb_mode   = in[offset++];
     const uint8_t uart_mode  = in[offset++];
@@ -273,6 +293,23 @@ bool ReadConfig(const uint8_t* in, AppState& state, char* sf2_name, size_t sf2_n
         if(state.loop_length_ticks < 1)
             state.loop_length_ticks = 1;
     }
+    if(version >= 9)
+    {
+        state.song_bpm_override = ReadUint16BE(in + offset);
+        offset += 2;
+    }
+    else
+    {
+        state.song_bpm_override = 0;
+    }
+    if(version >= 10)
+    {
+        state.sf2_master_volume_max = in[offset++];
+        state.sf2_expression_max    = in[offset++];
+        state.sf2_reverb_max        = in[offset++];
+        state.sf2_chorus_max        = in[offset++];
+        state.sf2_transpose         = static_cast<int8_t>(in[offset++]);
+    }
     if(version >= 7)
         CopyNameField(sf2_name, sf2_name_sz, in + offset, MediaLibrary::kPathMax);
     else if(version >= 4)
@@ -294,7 +331,8 @@ bool LoadSongConfig(const char* path, AppState& state, char* sf2_name, size_t sf
     UINT read = 0;
     const FRESULT read_result  = f_read(&file, data, kFileSize, &read);
     const FRESULT close_result = f_close(&file);
-    if(read_result != FR_OK || close_result != FR_OK || read != kFileSize)
+    if(read_result != FR_OK || close_result != FR_OK
+       || (read != kFileSize && read != kFileSizeV9 && read != kFileSizeV8))
         return false;
 
     return ReadConfig(data, state, sf2_name, sf2_name_sz);

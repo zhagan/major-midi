@@ -43,10 +43,20 @@ bool SysExFileTransfer::HandleUsbMidiEvent(const daisy::MidiEvent& msg,
 
 bool SysExFileTransfer::IsTransferMessage(const daisy::MidiEvent& msg) const
 {
-    return msg.type == daisy::MidiMessageType::SystemCommon
-           && msg.sc_type == daisy::SystemCommonType::SystemExclusive
-           && msg.sysex_message_len >= 4 && msg.sysex_data[0] == kManufacturerId
-           && msg.sysex_data[1] == kMagic0 && msg.sysex_data[2] == kMagic1;
+    if(msg.type != daisy::MidiMessageType::SystemCommon
+       || msg.sc_type != daisy::SystemCommonType::SystemExclusive
+       || msg.sysex_message_len < 4 || msg.sysex_data[0] != kManufacturerId
+       || msg.sysex_data[1] != kMagic0 || msg.sysex_data[2] != kMagic1)
+        return false;
+
+    switch(static_cast<Command>(msg.sysex_data[3]))
+    {
+        case Command::Start:
+        case Command::Data:
+        case Command::End:
+        case Command::Cancel: return true;
+        default: return false;
+    }
 }
 
 void SysExFileTransfer::HandleStart(const daisy::MidiEvent& msg,

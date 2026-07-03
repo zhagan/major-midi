@@ -294,6 +294,8 @@ struct AppState
     int          bpm                     = 120;
     bool         bpm_editing             = false;
     bool         instrument_focus_active = false;
+    uint8_t      instrument_focus_cursor = 0;
+    bool         instrument_focus_editing = false;
     size_t       selected_midi_index     = 0;
     size_t       selected_sf2_index      = 0;
     size_t       menu_root_cursor        = 0;

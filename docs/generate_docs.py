@@ -58,6 +58,7 @@ NAV_LINKS = [
     ("dev.html", "Dev Resources"),
     ("order.html", "Order"),
     ("transfer.html", "Transfer MIDI"),
+    ("remote.html", "Web Remote"),
 ]
 
 

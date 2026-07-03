@@ -18,6 +18,7 @@
 #include "smf_player.h"
 #include "synth_tsf.h"
 #include "sysex_file_transfer.h"
+#include "sysex_remote_control.h"
 #include "ui_controller.h"
 #include "ui_input.h"
 #include "ui_renderer.h"
@@ -56,6 +57,7 @@ AppState          app_state;
 MidiUsbHandler    usb_midi;
 MidiUartHandler   uart_midi;
 SysExFileTransfer sysex_file_transfer;
+SysExRemoteControl sysex_remote_control;
 ClockSync         midi_clock_sync;
 ClockSync         gate_clock_sync;
 TimerHandle       midi_tx_timer;
@@ -92,7 +94,10 @@ void     UpdateMidiMonitor(const MidiEv& ev);
 void     RefreshMediaLibrary(void*);
 void     CompleteMidiUpload(bool success, void*);
 void     PrepareForMidiUpload(uint32_t now_ms);
+void     SyncLoopStateForRemote(void*);
 void     StopAudioIfRunning();
+void     BuildSongConfigPath(const char* midi_path, char* out, size_t out_sz);
+bool     SaveSelectedSongConfig();
 uint16_t TickToMeasure(uint64_t tick, const SmfPlayer& player);
 uint8_t  TickToBeat(uint64_t tick, const SmfPlayer& player);
 void SyncLoopDisplayFieldsFromTicks(AppState& state, const SmfPlayer& player);
@@ -440,6 +445,26 @@ void SaveProgressOverlay(PersistWriteStage stage, void* context)
     LOG("Save stage: %s", text);
 }
 
+bool SaveSelectedSongConfig()
+{
+    char        midi_path[MediaLibrary::kPathMax + 16]{};
+    char        song_cfg_path[MediaLibrary::kPathMax + 24]{};
+    const char* current_sf2_name
+        = media_library.SoundFontName(app_state.selected_sf2_index);
+    media_library.BuildMidiPath(
+        app_state.selected_midi_index, midi_path, sizeof(midi_path));
+    BuildSongConfigPath(midi_path, song_cfg_path, sizeof(song_cfg_path));
+    if(song_cfg_path[0] == '\0')
+        return false;
+
+    const bool ok = SaveSongConfig(song_cfg_path, app_state, current_sf2_name);
+    if(ok)
+        SaveBootState(
+            app_state,
+            media_library.MidiName(app_state.selected_midi_index));
+    return ok;
+}
+
 void BuildSongConfigPath(const char* midi_path, char* out, size_t out_sz)
 {
     if(out_sz == 0)
@@ -458,6 +483,15 @@ void ResetSongScopedSettings()
 {
     app_state.cv_gate      = CvGateConfig{};
     InitMidiRoutingDefaults(app_state.midi_routing);
+    app_state.song_bpm_override     = 0;
+    app_state.song_loop_enabled     = false;
+    app_state.loop_start_tick       = 0;
+    app_state.loop_length_ticks     = 1920;
+    app_state.sf2_master_volume_max = 127;
+    app_state.sf2_expression_max    = 127;
+    app_state.sf2_reverb_max        = 127;
+    app_state.sf2_chorus_max        = 127;
+    app_state.sf2_transpose         = 0;
     for(int ch = 0; ch < 16; ch++)
     {
         app_state.channels[ch].volume           = 100;
@@ -771,6 +805,11 @@ void CompleteMidiUpload(bool success, void*)
     SetOverlay(app_state, success ? "USB MIDI Done" : "USB MIDI Aborted", System::GetNow(), 1200);
 }
 
+void SyncLoopStateForRemote(void*)
+{
+    SyncLoopDisplayFieldsFromTicks(app_state, smf_player);
+}
+
 bool IsUploadTransferCommand(const MidiEvent& msg, uint8_t command)
 {
     return msg.type == MidiMessageType::SystemCommon
@@ -807,6 +846,8 @@ void ServiceIncomingMidi()
         if(IsUploadTransferCommand(msg, 0x01))
             PrepareForMidiUpload(System::GetNow());
         if(sysex_file_transfer.HandleUsbMidiEvent(msg, usb_midi))
+            continue;
+        if(sysex_remote_control.HandleUsbMidiEvent(msg, usb_midi))
             continue;
         if(msg.type == MidiMessageType::SystemRealTime)
         {
@@ -1315,7 +1356,6 @@ bool SaveAllSettings(uint32_t now_ms)
     char        song_cfg_path[MediaLibrary::kPathMax + 24]{};
     const char* current_sf2_name
         = media_library.SoundFontName(app_state.selected_sf2_index);
-    const auto          midi_settings    = smf_player.Settings();
     const bool          had_audio        = audio_started;
     PersistWriteStage   song_stage       = PersistWriteStage::None;
     int                 song_result_code = -1;
@@ -1338,15 +1378,6 @@ bool SaveAllSettings(uint32_t now_ms)
     app_state.transport_playing = false;
     StopAudioIfRunning();
     transport.Reset(app_state);
-    if(midi_path[0] != '\0')
-        smf_player.Close();
-
-    bool midi_ok = true;
-    if(midi_path[0] != '\0')
-    {
-        show_save_stage("Write MIDI");
-        midi_ok = major_midi::WriteMajorMidiMetaEvent(midi_path, midi_settings);
-    }
 
     show_save_stage("Write SONG CFG");
     const bool song_ok = song_cfg_path[0] != '\0'
@@ -1370,19 +1401,6 @@ bool SaveAllSettings(uint32_t now_ms)
         show_save_stage(text);
     }
 
-    bool midi_reload_ok = true;
-    if(midi_path[0] != '\0')
-    {
-        show_save_stage("Reopen MIDI");
-        midi_reload_ok = smf_player.Open(midi_path);
-        if(midi_reload_ok)
-        {
-            app_state.bpm = TempoUsecToBpm(smf_player.TempoUsecPerQuarter());
-            transport.SetFileBpm(static_cast<float>(app_state.bpm));
-            SyncSongStateFromPlayer();
-        }
-    }
-
     if(song_ok && song_cfg_path[0] != '\0')
     {
         LoadSongConfig(song_cfg_path, app_state);
@@ -1397,7 +1415,7 @@ bool SaveAllSettings(uint32_t now_ms)
         EnsureAudioRunning();
     }
 
-    if(song_ok && midi_reload_ok)
+    if(song_ok)
     {
         app_state.ui_mode            = UiMode::Performance;
         app_state.menu_page          = MenuPage::Main;
@@ -1484,6 +1502,10 @@ int main(void)
     usb_midi.Init(usb_cfg);
     usb_midi.StartReceive();
     sysex_file_transfer.Init(RefreshMediaLibrary, CompleteMidiUpload, nullptr);
+    sysex_remote_control.Init(&app_state,
+                              &media_library,
+                              SyncLoopStateForRemote,
+                              nullptr);
 
     MidiUartHandler::Config uart_cfg{};
     uart_cfg.transport_config.periph = UartHandler::Config::Peripheral::UART_4;
@@ -1567,7 +1589,7 @@ int main(void)
         {
             app_state.pending_save_settings = false;
             SetOverlay(app_state,
-                       smf_player.SaveSettings() ? "MIDI Saved" : "Save Failed",
+                       SaveSelectedSongConfig() ? "Song Saved" : "Save Failed",
                        now);
             last_ui_activity_ms = now;
             ui_dirty            = true;

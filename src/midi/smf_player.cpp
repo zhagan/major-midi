@@ -1095,9 +1095,6 @@ void SmfPlayer::BuildTempoMap()
 void SmfPlayer::LoadMajorMidiSettings()
 {
     settings_.Reset();
-    if(!open_ || path_[0] == '\0')
-        return;
-    major_midi::ReadMajorMidiMetaEvent(path_, settings_, nullptr);
 }
 
 bool SmfPlayer::HasBpmOverride() const
@@ -1110,11 +1107,4 @@ uint32_t SmfPlayer::EffectiveTempoUsec() const
     if(HasBpmOverride())
         return major_midi::MajorMidiTempoUsecPerQuarter(settings_);
     return fileTempoUsec_;
-}
-
-bool SmfPlayer::SaveSettings()
-{
-    if(path_[0] == '\0')
-        return false;
-    return major_midi::WriteMajorMidiMetaEvent(path_, settings_);
 }

@@ -9,6 +9,7 @@ namespace major_midi
 namespace
 {
 constexpr uint8_t  kLoopEditItemCount  = 7;
+constexpr uint8_t  kInstrumentFocusItemCount = 6;
 
 float MidiToNorm(uint8_t value)
 {
@@ -60,6 +61,20 @@ const char* LoopEditItemName(LoopEditItem item)
         case LoopEditItem::LengthTick: return "Loop Length Tick";
     }
     return "Loop";
+}
+
+const char* InstrumentFocusItemName(uint8_t item)
+{
+    switch(item)
+    {
+        case 0: return "Mute";
+        case 1: return "Volume";
+        case 2: return "Pan";
+        case 3: return "Reverb";
+        case 4: return "Chorus";
+        case 5: return "Program";
+    }
+    return "Channel";
 }
 
 uint32_t LoopTicksPerBeat(const AppState& state)
@@ -254,6 +269,8 @@ bool UiController::HandleEvent(const UiEvent& event,
                 {
                     state_->sf2_channel             = static_cast<uint8_t>(ch);
                     state_->instrument_focus_active = true;
+                    state_->instrument_focus_cursor = 0;
+                    state_->instrument_focus_editing = false;
                     char text[24];
                     std::snprintf(text, sizeof(text), "Ch %d Focus", ch + 1);
                     SetOverlay(*state_, text, now_ms);
@@ -347,11 +364,15 @@ bool UiController::HandleEvent(const UiEvent& event,
                 return true;
             }
             if(state_->ui_mode == UiMode::Performance
-               && state_->instrument_focus_active
-               && state_->knob_page != KnobPage::Bpm)
+               && state_->instrument_focus_active)
             {
-                state_->instrument_focus_active = false;
-                SetOverlay(*state_, "Bank View", now_ms, 500);
+                state_->instrument_focus_editing = !state_->instrument_focus_editing;
+                SetOverlay(*state_,
+                           state_->instrument_focus_editing
+                               ? InstrumentFocusItemName(state_->instrument_focus_cursor)
+                               : "Focus Select",
+                           now_ms,
+                           500);
                 return true;
             }
             if(state_->ui_mode == UiMode::Performance
@@ -371,6 +392,12 @@ bool UiController::HandleEvent(const UiEvent& event,
             {
                 state_->loop_editing = false;
                 SetMode(UiMode::Performance, now_ms, "Loop Edit Off");
+                return true;
+            }
+            if(state_->ui_mode == UiMode::Performance
+               && state_->instrument_focus_active)
+            {
+                ExitInstrumentFocus(now_ms, "Bank View");
                 return true;
             }
             if(state_->ui_mode == UiMode::MidiMonitor)
@@ -421,7 +448,14 @@ bool UiController::HandleEvent(const UiEvent& event,
                 return true;
             if(state_->ui_mode == UiMode::Performance)
             {
-                if(state_->knob_page == KnobPage::Bpm && state_->bpm_editing)
+                if(state_->instrument_focus_active)
+                {
+                    if(state_->instrument_focus_editing)
+                        AdjustInstrumentFocusValue(event.delta, now_ms);
+                    else
+                        MoveInstrumentFocusCursor(event.delta, now_ms);
+                }
+                else if(state_->knob_page == KnobPage::Bpm && state_->bpm_editing)
                 {
                     state_->bpm = ClampInt(state_->bpm + event.delta, 20, 300);
                     char text[24];
@@ -480,6 +514,7 @@ void UiController::SelectBank(uint8_t bank, uint32_t now_ms)
     state_->bank = bank % 4;
     state_->bpm_editing             = false;
     state_->instrument_focus_active = false;
+    state_->instrument_focus_editing = false;
     ResetKnobPickup();
 
     char text[24];
@@ -517,6 +552,80 @@ void UiController::ToggleMenu(uint32_t now_ms)
     }
 
     EnterMenu(now_ms);
+}
+
+void UiController::ExitInstrumentFocus(uint32_t now_ms, const char* overlay)
+{
+    state_->instrument_focus_active  = false;
+    state_->instrument_focus_editing = false;
+    SetOverlay(*state_, overlay, now_ms, 500);
+}
+
+void UiController::MoveInstrumentFocusCursor(int32_t delta, uint32_t now_ms)
+{
+    if(delta == 0)
+        return;
+
+    int next = static_cast<int>(state_->instrument_focus_cursor) + (delta > 0 ? 1 : -1);
+    if(next < 0)
+        next = kInstrumentFocusItemCount - 1;
+    if(next >= kInstrumentFocusItemCount)
+        next = 0;
+
+    state_->instrument_focus_cursor = static_cast<uint8_t>(next);
+    SetOverlay(*state_,
+               InstrumentFocusItemName(state_->instrument_focus_cursor),
+               now_ms,
+               300);
+}
+
+void UiController::AdjustInstrumentFocusValue(int32_t delta, uint32_t now_ms)
+{
+    if(delta == 0)
+        return;
+
+    ChannelState& channel = state_->channels[state_->sf2_channel];
+    switch(state_->instrument_focus_cursor)
+    {
+        case 0:
+            channel.muted = delta > 0 ? true : false;
+            break;
+        case 1:
+            channel.volume = static_cast<uint8_t>(
+                ClampInt(static_cast<int>(channel.volume) + (delta > 0 ? 1 : -1),
+                         0,
+                         127));
+            break;
+        case 2:
+            channel.pan = static_cast<uint8_t>(
+                ClampInt(static_cast<int>(channel.pan) + (delta > 0 ? 1 : -1), 0, 127));
+            break;
+        case 3:
+            channel.reverb_send = static_cast<uint8_t>(
+                ClampInt(static_cast<int>(channel.reverb_send) + (delta > 0 ? 1 : -1),
+                         0,
+                         127));
+            break;
+        case 4:
+            channel.chorus_send = static_cast<uint8_t>(
+                ClampInt(static_cast<int>(channel.chorus_send) + (delta > 0 ? 1 : -1),
+                         0,
+                         127));
+            break;
+        case 5:
+            channel.program_override = static_cast<int8_t>(
+                ClampInt(static_cast<int>(channel.program_override) + (delta > 0 ? 1 : -1),
+                         -1,
+                         127));
+            break;
+        default: return;
+    }
+
+    state_->settings_dirty = true;
+    SetOverlay(*state_,
+               InstrumentFocusItemName(state_->instrument_focus_cursor),
+               now_ms,
+               300);
 }
 
 void UiController::MoveMenuRootCursor(int32_t delta, uint32_t now_ms)
@@ -670,7 +779,7 @@ void UiController::ActivateMenuPage(MediaLibrary& library, uint32_t now_ms)
             if(state_->menu_page_cursor == 8)
             {
                 state_->pending_save_settings = true;
-                SetOverlay(*state_, "Save MIDI", now_ms);
+                SetOverlay(*state_, "Save Song", now_ms);
             }
             else
             {

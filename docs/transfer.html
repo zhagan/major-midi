@@ -25,6 +25,7 @@
           <a href="dev.html">Dev Resources</a>
           <a href="order.html">Order</a>
           <a class="active" href="transfer.html">Transfer MIDI</a>
+          <a href="remote.html">Web Remote</a>
         </nav>
 
         <p class="nav-label">On This Page</p>
@@ -175,6 +176,8 @@
       let selectedInput = null;
       let selectedOutput = null;
       let boundInputs = [];
+      let preferredInputPortKey = "";
+      let preferredOutputPortKey = "";
       let uploadQueue = [];
       let uploading = false;
       let pendingAck = null;
@@ -298,6 +301,12 @@
 
       function setSelectedInput(port) {
         selectedInput = port || null;
+        preferredInputPortKey = selectedInput ? `${selectedInput.name || ""}|${selectedInput.manufacturer || ""}` : "";
+      }
+
+      function setSelectedOutput(port) {
+        selectedOutput = port || null;
+        preferredOutputPortKey = selectedOutput ? `${selectedOutput.name || ""}|${selectedOutput.manufacturer || ""}` : "";
       }
 
       function getPorts(type) {
@@ -307,12 +316,12 @@
 
       function fillPortSelect(select, ports, activeId) {
         select.innerHTML = "";
-        if (!ports.length) {
+        if (!ports.length || !activeId) {
           const option = document.createElement("option");
           option.value = "";
-          option.textContent = "No ports available";
+          option.textContent = ports.length ? "Select a port" : "No ports available";
+          option.selected = true;
           select.appendChild(option);
-          return;
         }
 
         for (const port of ports) {
@@ -326,7 +335,20 @@
 
       function autoPickPortId(ports) {
         const major = ports.find((port) => /major midi/i.test(`${port.name || ""} ${port.manufacturer || ""}`));
-        return major ? major.id : (ports[0] ? ports[0].id : "");
+        return major ? major.id : "";
+      }
+
+      function portKey(port) {
+        return `${port.name || ""}|${port.manufacturer || ""}`;
+      }
+
+      function resolvePreferredPort(ports, selectValue, preferredKey) {
+        if (selectValue && ports.some((port) => port.id === selectValue)) return selectValue;
+        if (preferredKey) {
+          const preferred = ports.find((port) => portKey(port) === preferredKey);
+          if (preferred) return preferred.id;
+        }
+        return autoPickPortId(ports);
       }
 
       function refreshPorts() {
@@ -334,13 +356,13 @@
 
         const inputs = getPorts("input");
         const outputs = getPorts("output");
-        const nextInputId = inputs.some((port) => port.id === inputSelect.value) ? inputSelect.value : autoPickPortId(inputs);
-        const nextOutputId = outputs.some((port) => port.id === outputSelect.value) ? outputSelect.value : autoPickPortId(outputs);
+        const nextInputId = resolvePreferredPort(inputs, inputSelect.value, preferredInputPortKey);
+        const nextOutputId = resolvePreferredPort(outputs, outputSelect.value, preferredOutputPortKey);
 
         fillPortSelect(inputSelect, inputs, nextInputId);
         fillPortSelect(outputSelect, outputs, nextOutputId);
 
-        selectedOutput = outputs.find((port) => port.id === nextOutputId) || null;
+        setSelectedOutput(outputs.find((port) => port.id === nextOutputId) || null);
         setSelectedInput(inputs.find((port) => port.id === nextInputId) || null);
         bindAllInputs();
 
@@ -407,7 +429,7 @@
             reject(new Error(`Timed out waiting for Major MIDI ack to ${commandName(command)}.`));
           }, ACK_TIMEOUT_MS);
 
-          log(`Sent ${commandName(command)} packet.`);
+          log(`Sent ${commandName(command)} packet to ${selectedOutput.name || selectedOutput.id}.`);
           pendingAck = { command, resolve, reject, timer };
           selectedOutput.send(buildSysEx(command, payload));
         });
@@ -495,7 +517,7 @@
       });
 
       outputSelect.addEventListener("change", () => {
-        selectedOutput = getPorts("output").find((port) => port.id === outputSelect.value) || null;
+        setSelectedOutput(getPorts("output").find((port) => port.id === outputSelect.value) || null);
         refreshPorts();
       });
 

@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Web Remote | Major MIDI</title>
+    <meta
+      name="description"
+      content="Rich browser remote for Major MIDI over USB MIDI SysEx."
+    />
+    <link rel="stylesheet" href="./styles.css" />
+    <style>
+      body.remote-page .shell {
+        max-width: 1440px;
+        padding: 18px;
+        gap: 18px;
+      }
+
+      body.remote-page .main {
+        display: grid;
+        grid-template-columns: repeat(12, minmax(0, 1fr));
+        gap: 16px;
+        align-content: start;
+      }
+
+      body.remote-page .hero,
+      body.remote-page .section {
+        margin-bottom: 0;
+      }
+
+      body.remote-page .hero {
+        grid-column: 1 / -1;
+        padding: 22px 24px;
+      }
+
+      body.remote-page .section {
+        padding: 18px 20px;
+      }
+
+      body.remote-page #connect {
+        grid-column: span 5;
+      }
+
+      body.remote-page #status {
+        grid-column: span 3;
+      }
+
+      body.remote-page #transport {
+        grid-column: span 4;
+      }
+
+      body.remote-page #library,
+      body.remote-page #song {
+        grid-column: span 6;
+      }
+
+      body.remote-page #mixer,
+      body.remote-page .footer {
+        grid-column: 1 / -1;
+      }
+
+      body.remote-page .hero-grid,
+      body.remote-page .grid-2,
+      body.remote-page .transfer-grid {
+        gap: 12px;
+      }
+
+      body.remote-page .uploader-card,
+      body.remote-page .field {
+        gap: 8px;
+      }
+
+      body.remote-page .mini-card {
+        padding: 12px 14px;
+      }
+
+      body.remote-page .section h2 {
+        margin-bottom: 0.8rem;
+        font-size: 1.45rem;
+      }
+
+      body.remote-page .hero h2 {
+        margin-bottom: 0.6rem;
+        font-size: clamp(1.8rem, 3vw, 2.7rem);
+      }
+
+      body.remote-page .button-row {
+        gap: 8px;
+      }
+
+      body.remote-page .button-row button {
+        padding: 0.62rem 0.88rem;
+      }
+
+      body.remote-page select,
+      body.remote-page input[type="number"],
+      body.remote-page input[type="text"],
+      body.remote-page input[type="file"] {
+        width: 100%;
+        min-height: 0;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: rgba(15, 23, 17, 0.92);
+        color: var(--ink);
+        padding: 0.58rem 0.72rem;
+        font: inherit;
+      }
+
+      body.remote-page input[type="checkbox"] {
+        width: 16px;
+        height: 16px;
+      }
+
+      body.remote-page .status-pill {
+        min-height: 34px;
+        padding: 0.45rem 0.7rem;
+      }
+
+      body.remote-page table {
+        font-size: 0.88rem;
+      }
+
+      body.remote-page th,
+      body.remote-page td {
+        padding: 0.45rem 0.38rem;
+        white-space: nowrap;
+      }
+
+      body.remote-page #channel-table input[type="number"] {
+        min-width: 4.4rem;
+      }
+
+      body.remote-page #channel-table input[type="text"] {
+        min-width: 4.8rem;
+      }
+
+      body.remote-page .log {
+        min-height: 120px;
+        max-height: 180px;
+        padding: 12px 14px;
+      }
+
+      body.remote-page .footer {
+        padding: 0 4px 28px;
+      }
+
+      @media (max-width: 1180px) {
+        body.remote-page .main {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        body.remote-page .hero,
+        body.remote-page #connect,
+        body.remote-page #status,
+        body.remote-page #transport,
+        body.remote-page #library,
+        body.remote-page #song,
+        body.remote-page #mixer,
+        body.remote-page .footer {
+          grid-column: 1 / -1;
+        }
+      }
+
+      @media (max-width: 720px) {
+        body.remote-page .shell {
+          padding: 14px;
+          gap: 14px;
+        }
+
+        body.remote-page .section,
+        body.remote-page .hero {
+          padding: 16px;
+        }
+      }
+    </style>
+  </head>
+  <body class="remote-page">
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <p class="kicker">Major MIDI</p>
+          <h1>Web Remote</h1>
+        </div>
+
+        <p class="nav-label">Pages</p>
+        <nav class="nav page-nav">
+          <a href="index.html">Home</a>
+          <a href="user.html">User Manual</a>
+          <a href="dev.html">Dev Resources</a>
+          <a href="order.html">Order</a>
+          <a href="transfer.html">Transfer MIDI</a>
+          <a class="active" href="remote.html">Web Remote</a>
+        </nav>
+
+        <p class="nav-label">On This Page</p>
+        <nav class="nav section-nav">
+          <a href="#connect">Connect</a>
+          <a href="#status">Status</a>
+          <a href="#library">Library</a>
+          <a href="#song">Song</a>
+          <a href="#mixer">Mixer</a>
+          <a href="#transport">Transport</a>
+        </nav>
+      </aside>
+
+      <main class="main">
+        <section class="hero" id="top">
+          <div class="hero-grid">
+            <div>
+              <h2>Web Remote</h2>
+              <p>Browser control for Major MIDI: inspect status, browse media, load files, run transport, edit song loop settings, and adjust all 16 MIDI channels.</p>
+            </div>
+            <div class="hero-card">
+              <h3>Scope</h3>
+              <ul>
+                <li>Load MIDI files and SoundFonts</li>
+                <li>Play and stop transport</li>
+                <li>Edit song BPM override and loop settings</li>
+                <li>Edit per-channel volume, pan, FX sends, mute, and program override</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="connect">
+          <h2>Connect</h2>
+          <div class="uploader-card">
+            <div class="transfer-grid">
+              <div class="field">
+                <label for="midi-input">MIDI Input From Major MIDI</label>
+                <select id="midi-input"></select>
+              </div>
+              <div class="field">
+                <label for="midi-output">MIDI Output To Major MIDI</label>
+                <select id="midi-output"></select>
+              </div>
+            </div>
+
+            <div class="button-row">
+              <button id="enable-midi">Enable Web MIDI</button>
+              <button id="refresh-ports" class="secondary" disabled>Refresh Ports</button>
+              <button id="refresh-all" class="secondary" disabled>Refresh Remote</button>
+            </div>
+
+            <div id="connection-status" class="status-pill warn">Web MIDI permission not granted yet.</div>
+          </div>
+        </section>
+
+        <section class="section" id="status">
+          <h2>Status</h2>
+          <div class="grid-2">
+            <div class="mini-card">
+              <h4>Transport</h4>
+              <p id="status-transport">Stopped</p>
+              <p id="status-position" class="fine-print">Measure -, Beat -</p>
+            </div>
+            <div class="mini-card">
+              <h4>Loaded Media</h4>
+              <p id="status-midi">MIDI: none</p>
+              <p id="status-sf2" class="fine-print">SF2: none</p>
+              <p id="status-bpm" class="fine-print">BPM: -</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="library">
+          <h2>Library</h2>
+          <div class="transfer-grid">
+            <div class="mini-card">
+              <h4>MIDI Files</h4>
+              <div class="field">
+                <select id="midi-list"></select>
+              </div>
+              <div class="button-row">
+                <button id="load-midi">Load MIDI</button>
+              </div>
+            </div>
+            <div class="mini-card">
+              <h4>SoundFonts</h4>
+              <div class="field">
+                <select id="sf2-list"></select>
+              </div>
+              <div class="button-row">
+                <button id="load-sf2">Load SF2</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="song">
+          <h2>Song</h2>
+          <div class="transfer-grid">
+            <div class="field">
+              <label for="song-bpm-override">BPM Override</label>
+              <input id="song-bpm-override" type="number" min="0" max="300" />
+            </div>
+            <div class="field">
+              <label for="song-loop-enabled">Loop Enabled</label>
+              <select id="song-loop-enabled">
+                <option value="0">Off</option>
+                <option value="1">On</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="song-loop-start">Loop Start Tick</label>
+              <input id="song-loop-start" type="number" min="0" max="268435455" />
+            </div>
+            <div class="field">
+              <label for="song-loop-length">Loop Length Tick</label>
+              <input id="song-loop-length" type="number" min="1" max="268435455" />
+            </div>
+          </div>
+          <div class="button-row">
+            <button id="apply-song">Apply Song Settings</button>
+            <button id="save-song" class="secondary">Save Song Settings</button>
+          </div>
+        </section>
+
+        <section class="section" id="mixer">
+          <h2>Mixer</h2>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Ch</th>
+                  <th>Volume</th>
+                  <th>Pan</th>
+                  <th>Reverb</th>
+                  <th>Chorus</th>
+                  <th>Mute</th>
+                  <th>Program Ovr</th>
+                  <th>Current</th>
+                  <th>Apply</th>
+                </tr>
+              </thead>
+              <tbody id="channel-table"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="section" id="transport">
+          <h2>Transport</h2>
+          <div class="button-row">
+            <button id="play-button">Play</button>
+            <button id="stop-button" class="secondary">Stop</button>
+            <button id="toggle-button" class="secondary">Toggle</button>
+            <button id="refresh-status" class="secondary">Refresh Status</button>
+          </div>
+          <pre id="log" class="log">Waiting for Web MIDI access.</pre>
+        </section>
+
+        <div class="footer">
+          Rich remote-control page for Major MIDI USB SysEx commands.
+        </div>
+      </main>
+    </div>
+
+    <script>
+      const MANUFACTURER_ID = 0x7d;
+      const MAGIC = [0x4d, 0x4d];
+      const CMD = {
+        getStatus: 0x10,
+        getMidiEntry: 0x11,
+        getSf2Entry: 0x12,
+        loadMidi: 0x13,
+        loadSf2: 0x14,
+        transport: 0x15,
+        getChannelState: 0x16,
+        setChannelState: 0x17,
+        getSongState: 0x18,
+        setSongState: 0x19,
+        saveSongSettings: 0x1a,
+      };
+      const STATUS_TEXT = {
+        0x00: "OK",
+        0x01: "Invalid packet",
+        0x02: "Out of range",
+      };
+      const PROGRAM_FILE = 128;
+
+      let midiAccess = null;
+      let selectedOutput = null;
+      let boundInputs = [];
+      let preferredInputPortKey = "";
+      let preferredOutputPortKey = "";
+      let pendingReply = null;
+      let midiEntries = [];
+      let sf2Entries = [];
+      let channelStates = Array.from({ length: 16 }, (_, index) => ({ index }));
+
+      const inputSelect = document.getElementById("midi-input");
+      const outputSelect = document.getElementById("midi-output");
+      const enableButton = document.getElementById("enable-midi");
+      const refreshPortsButton = document.getElementById("refresh-ports");
+      const refreshAllButton = document.getElementById("refresh-all");
+      const refreshStatusButton = document.getElementById("refresh-status");
+      const loadMidiButton = document.getElementById("load-midi");
+      const loadSf2Button = document.getElementById("load-sf2");
+      const playButton = document.getElementById("play-button");
+      const stopButton = document.getElementById("stop-button");
+      const toggleButton = document.getElementById("toggle-button");
+      const applySongButton = document.getElementById("apply-song");
+      const saveSongButton = document.getElementById("save-song");
+      const midiList = document.getElementById("midi-list");
+      const sf2List = document.getElementById("sf2-list");
+      const connectionStatus = document.getElementById("connection-status");
+      const statusTransport = document.getElementById("status-transport");
+      const statusPosition = document.getElementById("status-position");
+      const statusMidi = document.getElementById("status-midi");
+      const statusSf2 = document.getElementById("status-sf2");
+      const statusBpm = document.getElementById("status-bpm");
+      const songBpmOverride = document.getElementById("song-bpm-override");
+      const songLoopEnabled = document.getElementById("song-loop-enabled");
+      const songLoopStart = document.getElementById("song-loop-start");
+      const songLoopLength = document.getElementById("song-loop-length");
+      const channelTable = document.getElementById("channel-table");
+      const logEl = document.getElementById("log");
+
+      function setStatus(el, text, tone = "") {
+        el.textContent = text;
+        el.className = "status-pill" + (tone ? " " + tone : "");
+      }
+
+      function log(message) {
+        const stamp = new Date().toLocaleTimeString();
+        const line = `[${stamp}] ${message}`;
+        logEl.textContent = logEl.textContent === "Waiting for Web MIDI access." ? line : `${logEl.textContent}\n${line}`;
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      function encode14(value) {
+        return [value & 0x7f, (value >> 7) & 0x7f];
+      }
+
+      function encode28(value) {
+        return [value & 0x7f, (value >> 7) & 0x7f, (value >> 14) & 0x7f, (value >> 21) & 0x7f];
+      }
+
+      function decode14(data, offset) {
+        return data[offset] | (data[offset + 1] << 7);
+      }
+
+      function decode28(data, offset) {
+        return data[offset] | (data[offset + 1] << 7) | (data[offset + 2] << 14) | (data[offset + 3] << 21);
+      }
+
+      function decodeText(bytes) {
+        return new TextDecoder().decode(bytes);
+      }
+
+      function commandName(command) {
+        return Object.entries(CMD).find(([, value]) => value === command)?.[0] || `0x${command.toString(16)}`;
+      }
+
+      function buildSysEx(command, payload = []) {
+        return new Uint8Array([0xf0, MANUFACTURER_ID, ...MAGIC, command, ...payload, 0xf7]);
+      }
+
+      function parseReply(data) {
+        if (!(data instanceof Uint8Array) || data.length < 7) return null;
+        if (data[0] !== 0xf0 || data[data.length - 1] !== 0xf7) return null;
+        if (data[1] !== MANUFACTURER_ID || data[2] !== MAGIC[0] || data[3] !== MAGIC[1]) return null;
+        return {
+          command: data[4],
+          status: data[5],
+          payload: data.slice(6, data.length - 1),
+        };
+      }
+
+      function bindAllInputs() {
+        for (const port of boundInputs) port.onmidimessage = null;
+        boundInputs = Array.from(midiAccess.inputs.values());
+        for (const port of boundInputs) {
+          port.onmidimessage = (event) => {
+            const reply = parseReply(event.data);
+            if (!reply) return;
+            log(`Reply ${commandName(reply.command)} on ${port.name || port.id}.`);
+            if (!pendingReply) return;
+            const { command, resolve, reject, timer } = pendingReply;
+            clearTimeout(timer);
+            pendingReply = null;
+            if (reply.command !== command) {
+              reject(new Error(`Unexpected ${commandName(reply.command)} while waiting for ${commandName(command)}.`));
+              return;
+            }
+            if (reply.status !== 0x00) {
+              reject(new Error(`${STATUS_TEXT[reply.status] || "Remote error"} from ${commandName(reply.command)}.`));
+              return;
+            }
+            resolve(reply);
+          };
+        }
+      }
+
+      function portKey(port) {
+        return `${port.name || ""}|${port.manufacturer || ""}`;
+      }
+
+      function getPorts(type) {
+        const ports = type === "input" ? midiAccess.inputs : midiAccess.outputs;
+        return Array.from(ports.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      }
+
+      function fillPortSelect(select, ports, selectedId) {
+        select.innerHTML = "";
+        if (!ports.length || !selectedId) {
+          const option = document.createElement("option");
+          option.value = "";
+          option.textContent = ports.length ? "Select a port" : "No ports available";
+          option.selected = true;
+          select.appendChild(option);
+        }
+        for (const port of ports) {
+          const option = document.createElement("option");
+          option.value = port.id;
+          option.textContent = `${port.name || "Unnamed"}${port.manufacturer ? ` (${port.manufacturer})` : ""}`;
+          if (port.id === selectedId) option.selected = true;
+          select.appendChild(option);
+        }
+      }
+
+      function autoPickPortId(ports) {
+        const major = ports.find((port) => /major midi/i.test(`${port.name || ""} ${port.manufacturer || ""}`));
+        return major ? major.id : "";
+      }
+
+      function resolvePreferredPort(ports, selectValue, preferredKey) {
+        if (selectValue && ports.some((port) => port.id === selectValue)) return selectValue;
+        if (preferredKey) {
+          const preferred = ports.find((port) => portKey(port) === preferredKey);
+          if (preferred) return preferred.id;
+        }
+        return autoPickPortId(ports);
+      }
+
+      function refreshPorts() {
+        if (!midiAccess) return;
+        const inputs = getPorts("input");
+        const outputs = getPorts("output");
+        const nextInputId = resolvePreferredPort(inputs, inputSelect.value, preferredInputPortKey);
+        const nextOutputId = resolvePreferredPort(outputs, outputSelect.value, preferredOutputPortKey);
+        fillPortSelect(inputSelect, inputs, nextInputId);
+        fillPortSelect(outputSelect, outputs, nextOutputId);
+        selectedOutput = outputs.find((port) => port.id === nextOutputId) || null;
+        preferredOutputPortKey = selectedOutput ? portKey(selectedOutput) : "";
+        const selectedInput = inputs.find((port) => port.id === nextInputId) || null;
+        preferredInputPortKey = selectedInput ? portKey(selectedInput) : "";
+        bindAllInputs();
+        log(`Ports: inputs=${inputs.map((port) => port.name || port.id).join(", ") || "none"} | outputs=${outputs.map((port) => port.name || port.id).join(", ") || "none"}`);
+        if (selectedOutput && selectedInput) {
+          setStatus(connectionStatus, `Ready: send to ${selectedOutput.name || "output"}, listen on all inputs`, "good");
+        } else {
+          setStatus(connectionStatus, "Select a Major MIDI USB MIDI port.", "warn");
+        }
+      }
+
+      async function enableMidi() {
+        if (!navigator.requestMIDIAccess) {
+          setStatus(connectionStatus, "This browser does not support Web MIDI.", "bad");
+          return;
+        }
+        try {
+          midiAccess = await navigator.requestMIDIAccess({ sysex: true });
+          midiAccess.onstatechange = refreshPorts;
+          refreshPorts();
+          refreshPortsButton.disabled = false;
+          refreshAllButton.disabled = false;
+          log("Web MIDI SysEx access granted.");
+        } catch (error) {
+          setStatus(connectionStatus, "Web MIDI SysEx permission was denied.", "bad");
+          log(`Failed to enable Web MIDI: ${error.message}`);
+        }
+      }
+
+      function sendAndWait(command, payload = []) {
+        if (!selectedOutput) throw new Error("Select the Major MIDI output port first.");
+        if (pendingReply) throw new Error("Another remote request is still pending.");
+        return new Promise((resolve, reject) => {
+          const timer = window.setTimeout(() => {
+            pendingReply = null;
+            reject(new Error(`Timed out waiting for ${commandName(command)}.`));
+          }, 5000);
+          pendingReply = { command, resolve, reject, timer };
+          selectedOutput.send(buildSysEx(command, payload));
+          log(`Sent ${commandName(command)} to ${selectedOutput.name || selectedOutput.id}.`);
+        });
+      }
+
+      function fillList(select, entries, emptyText) {
+        select.innerHTML = "";
+        if (!entries.length) {
+          const option = document.createElement("option");
+          option.value = "";
+          option.textContent = emptyText;
+          select.appendChild(option);
+          return;
+        }
+        for (const entry of entries) {
+          const option = document.createElement("option");
+          option.value = String(entry.index);
+          option.textContent = entry.name;
+          select.appendChild(option);
+        }
+      }
+
+      async function fetchEntries(command, count) {
+        const entries = [];
+        for (let index = 0; index < count; index++) {
+          const reply = await sendAndWait(command, encode14(index));
+          const entryIndex = decode14(reply.payload, 0);
+          const nameLength = reply.payload[2];
+          const name = decodeText(reply.payload.slice(3, 3 + nameLength));
+          entries.push({ index: entryIndex, name });
+        }
+        return entries;
+      }
+
+      async function fetchStatus() {
+        const reply = await sendAndWait(CMD.getStatus);
+        const midiCount = decode14(reply.payload, 0);
+        const sf2Count = decode14(reply.payload, 2);
+        const selectedMidiIndex = decode14(reply.payload, 4);
+        const selectedSf2Index = decode14(reply.payload, 6);
+        const playing = reply.payload[8] === 1;
+        const bpm = decode14(reply.payload, 9);
+        const measure = decode14(reply.payload, 11);
+        const beat = reply.payload[13];
+        return { midiCount, sf2Count, selectedMidiIndex, selectedSf2Index, playing, bpm, measure, beat };
+      }
+
+      async function fetchSongState() {
+        const reply = await sendAndWait(CMD.getSongState);
+        return {
+          bpmOverride: decode14(reply.payload, 0),
+          loopEnabled: reply.payload[2] === 1,
+          loopStart: decode28(reply.payload, 3),
+          loopLength: decode28(reply.payload, 7),
+        };
+      }
+
+      async function fetchChannelStates() {
+        const nextStates = [];
+        for (let index = 0; index < 16; index++) {
+          const reply = await sendAndWait(CMD.getChannelState, encode14(index));
+          nextStates.push({
+            index: decode14(reply.payload, 0),
+            volume: reply.payload[2],
+            pan: reply.payload[3],
+            reverb: reply.payload[4],
+            chorus: reply.payload[5],
+            muted: reply.payload[6] === 1,
+            programOverride: decode14(reply.payload, 7),
+            currentProgram: reply.payload[9],
+          });
+        }
+        channelStates = nextStates;
+      }
+
+      function renderMixer() {
+        channelTable.innerHTML = "";
+        for (const state of channelStates) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${state.index + 1}</td>
+            <td><input data-field="volume" data-index="${state.index}" type="number" min="0" max="127" value="${state.volume}" /></td>
+            <td><input data-field="pan" data-index="${state.index}" type="number" min="0" max="127" value="${state.pan}" /></td>
+            <td><input data-field="reverb" data-index="${state.index}" type="number" min="0" max="127" value="${state.reverb}" /></td>
+            <td><input data-field="chorus" data-index="${state.index}" type="number" min="0" max="127" value="${state.chorus}" /></td>
+            <td><input data-field="muted" data-index="${state.index}" type="checkbox" ${state.muted ? "checked" : ""} /></td>
+            <td><input data-field="programOverride" data-index="${state.index}" type="text" value="${state.programOverride === PROGRAM_FILE ? "" : state.programOverride}" placeholder="file" /></td>
+            <td>${state.currentProgram}</td>
+            <td><button data-apply-channel="${state.index}" class="secondary">Apply</button></td>
+          `;
+          channelTable.appendChild(tr);
+        }
+      }
+
+      function updateStatusUI(status, songState) {
+        const currentMidi = midiEntries.find((entry) => entry.index === status.selectedMidiIndex);
+        const currentSf2 = sf2Entries.find((entry) => entry.index === status.selectedSf2Index);
+        statusTransport.textContent = status.playing ? "Playing" : "Stopped";
+        statusPosition.textContent = `Measure ${status.measure || "-"}, Beat ${status.beat || "-"}`;
+        statusMidi.textContent = `MIDI: ${currentMidi ? currentMidi.name : "none"}`;
+        statusSf2.textContent = `SF2: ${currentSf2 ? currentSf2.name : "none"}`;
+        statusBpm.textContent = `BPM: ${status.bpm || "-"}`;
+        songBpmOverride.value = songState.bpmOverride;
+        songLoopEnabled.value = songState.loopEnabled ? "1" : "0";
+        songLoopStart.value = songState.loopStart;
+        songLoopLength.value = songState.loopLength;
+        midiList.value = midiEntries.some((entry) => entry.index === status.selectedMidiIndex) ? String(status.selectedMidiIndex) : "";
+        sf2List.value = sf2Entries.some((entry) => entry.index === status.selectedSf2Index) ? String(status.selectedSf2Index) : "";
+      }
+
+      async function refreshRemote() {
+        const status = await fetchStatus();
+        midiEntries = await fetchEntries(CMD.getMidiEntry, status.midiCount);
+        sf2Entries = await fetchEntries(CMD.getSf2Entry, status.sf2Count);
+        fillList(midiList, midiEntries, "No MIDI files");
+        fillList(sf2List, sf2Entries, "No SoundFonts");
+        const songState = await fetchSongState();
+        await fetchChannelStates();
+        renderMixer();
+        updateStatusUI(status, songState);
+        log(`Remote refreshed: midi=${status.midiCount}, sf2=${status.sf2Count}, playing=${status.playing ? "yes" : "no"}.`);
+      }
+
+      async function loadSelection(command, select, label) {
+        const value = Number(select.value);
+        if (!Number.isInteger(value)) throw new Error(`Select a ${label} first.`);
+        await sendAndWait(command, encode14(value));
+        log(`${label} load requested.`);
+        window.setTimeout(() => refreshRemote().catch((error) => log(`Refresh failed: ${error.message}`)), 400);
+      }
+
+      async function setTransport(action, label) {
+        await sendAndWait(CMD.transport, [action]);
+        log(`${label} requested.`);
+        window.setTimeout(() => refreshRemote().catch((error) => log(`Refresh failed: ${error.message}`)), 200);
+      }
+
+      async function applySongSettings() {
+        const bpmOverride = Number(songBpmOverride.value || 0);
+        const loopEnabled = Number(songLoopEnabled.value || 0);
+        const loopStart = Number(songLoopStart.value || 0);
+        const loopLength = Number(songLoopLength.value || 1);
+        if (!Number.isInteger(bpmOverride) || bpmOverride < 0 || bpmOverride > 300) {
+          throw new Error("BPM override must be between 0 and 300.");
+        }
+        if (!Number.isInteger(loopStart) || loopStart < 0 || loopStart > 268435455) {
+          throw new Error("Loop start tick is out of range.");
+        }
+        if (!Number.isInteger(loopLength) || loopLength < 1 || loopLength > 268435455) {
+          throw new Error("Loop length tick must be at least 1.");
+        }
+        await sendAndWait(CMD.setSongState, [...encode14(bpmOverride), loopEnabled ? 1 : 0, ...encode28(loopStart), ...encode28(loopLength)]);
+        log("Song settings applied.");
+        window.setTimeout(() => refreshRemote().catch((error) => log(`Refresh failed: ${error.message}`)), 150);
+      }
+
+      async function saveSongSettings() {
+        await sendAndWait(CMD.saveSongSettings);
+        log("Song save requested.");
+      }
+
+      function readChannelRow(index) {
+        const root = channelTable.querySelector(`button[data-apply-channel="${index}"]`)?.closest("tr");
+        if (!root) throw new Error(`Missing channel row ${index + 1}.`);
+        const get = (field) => root.querySelector(`[data-field="${field}"][data-index="${index}"]`);
+        const programText = get("programOverride").value.trim();
+        const programOverride = programText === "" ? PROGRAM_FILE : Number(programText);
+        const state = {
+          volume: Number(get("volume").value),
+          pan: Number(get("pan").value),
+          reverb: Number(get("reverb").value),
+          chorus: Number(get("chorus").value),
+          muted: get("muted").checked ? 1 : 0,
+          programOverride,
+        };
+        for (const [key, value] of Object.entries(state)) {
+          if (key === "muted") continue;
+          if (!Number.isInteger(value) || value < 0 || value > (key === "programOverride" ? 128 : 127)) {
+            throw new Error(`Channel ${index + 1} has an invalid ${key} value.`);
+          }
+        }
+        return state;
+      }
+
+      async function applyChannel(index) {
+        const state = readChannelRow(index);
+        await sendAndWait(CMD.setChannelState, [...encode14(index), state.volume, state.pan, state.reverb, state.chorus, state.muted, ...encode14(state.programOverride)]);
+        log(`Channel ${index + 1} applied.`);
+        window.setTimeout(() => refreshRemote().catch((error) => log(`Refresh failed: ${error.message}`)), 150);
+      }
+
+      enableButton.addEventListener("click", enableMidi);
+      refreshPortsButton.addEventListener("click", refreshPorts);
+      refreshAllButton.addEventListener("click", () => refreshRemote().catch((error) => log(`Refresh failed: ${error.message}`)));
+      refreshStatusButton.addEventListener("click", () => refreshRemote().catch((error) => log(`Refresh failed: ${error.message}`)));
+      loadMidiButton.addEventListener("click", () => loadSelection(CMD.loadMidi, midiList, "MIDI").catch((error) => log(`Load failed: ${error.message}`)));
+      loadSf2Button.addEventListener("click", () => loadSelection(CMD.loadSf2, sf2List, "SF2").catch((error) => log(`Load failed: ${error.message}`)));
+      playButton.addEventListener("click", () => setTransport(0x01, "Play").catch((error) => log(`Transport failed: ${error.message}`)));
+      stopButton.addEventListener("click", () => setTransport(0x00, "Stop").catch((error) => log(`Transport failed: ${error.message}`)));
+      toggleButton.addEventListener("click", () => setTransport(0x02, "Toggle").catch((error) => log(`Transport failed: ${error.message}`)));
+      applySongButton.addEventListener("click", () => applySongSettings().catch((error) => log(`Song apply failed: ${error.message}`)));
+      saveSongButton.addEventListener("click", () => saveSongSettings().catch((error) => log(`Song save failed: ${error.message}`)));
+      channelTable.addEventListener("click", (event) => {
+        const button = event.target.closest("button[data-apply-channel]");
+        if (!button) return;
+        const index = Number(button.getAttribute("data-apply-channel"));
+        applyChannel(index).catch((error) => log(`Channel apply failed: ${error.message}`));
+      });
+    </script>
+  </body>
+</html>
