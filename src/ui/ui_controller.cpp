@@ -1285,6 +1285,13 @@ void UiController::AdjustMenuValue(int32_t delta, uint32_t now_ms)
                                                      ? NotePriority::Lowest
                                                      : NotePriority::Highest;
                     break;
+                case CvGateMenuItem::CvOut1Scale:
+                    cv_gate.cv_out[0].pitch_scale = static_cast<uint16_t>(
+                        ClampInt(static_cast<int>(cv_gate.cv_out[0].pitch_scale)
+                                     + (delta > 0 ? 1 : -1),
+                                 900,
+                                 1100));
+                    break;
                 case CvGateMenuItem::CvOut2Mode:
                     cv_gate.cv_out[1].mode = static_cast<CvOutMode>(
                         ClampInt(static_cast<int>(cv_gate.cv_out[1].mode) + (delta > 0 ? 1 : -1),
@@ -1307,6 +1314,13 @@ void UiController::AdjustMenuValue(int32_t delta, uint32_t now_ms)
                     cv_gate.cv_out[1].priority = cv_gate.cv_out[1].priority == NotePriority::Highest
                                                      ? NotePriority::Lowest
                                                      : NotePriority::Highest;
+                    break;
+                case CvGateMenuItem::CvOut2Scale:
+                    cv_gate.cv_out[1].pitch_scale = static_cast<uint16_t>(
+                        ClampInt(static_cast<int>(cv_gate.cv_out[1].pitch_scale)
+                                     + (delta > 0 ? 1 : -1),
+                                 900,
+                                 1100));
                     break;
                 default: return;
             }

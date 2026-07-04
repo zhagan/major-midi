@@ -6,11 +6,23 @@ namespace major_midi
 namespace
 {
 static constexpr uint8_t kMagic[4]   = {'M', 'M', 'C', 'V'};
-static constexpr uint8_t kVersion    = 4;
+static constexpr uint8_t kVersion    = 5;
 static constexpr size_t  kFileSizeV1 = 25;
 static constexpr size_t  kFileSizeV2 = 27;
 static constexpr size_t  kFileSizeV3 = 29;
-static constexpr size_t  kFileSize   = 31;
+static constexpr size_t  kFileSizeV4 = 31;
+static constexpr size_t  kFileSize   = 35;
+
+void WriteUint16BE(uint8_t* out, uint16_t value)
+{
+    out[0] = static_cast<uint8_t>((value >> 8) & 0xFFu);
+    out[1] = static_cast<uint8_t>(value & 0xFFu);
+}
+
+uint16_t ReadUint16BE(const uint8_t* in)
+{
+    return static_cast<uint16_t>((static_cast<uint16_t>(in[0]) << 8) | in[1]);
+}
 
 void WriteConfig(uint8_t* out, const CvGateConfig& config)
 {
@@ -48,6 +60,8 @@ void WriteConfig(uint8_t* out, const CvGateConfig& config)
         out[offset++] = config.cv_out[i].channel;
         out[offset++] = config.cv_out[i].cc;
         out[offset++] = static_cast<uint8_t>(config.cv_out[i].priority);
+        WriteUint16BE(out + offset, config.cv_out[i].pitch_scale);
+        offset += 2;
     }
 }
 
@@ -113,11 +127,15 @@ bool ReadConfig(const uint8_t* in, CvGateConfig& config)
         config.cv_out[i].channel  = in[offset++];
         config.cv_out[i].cc       = in[offset++];
         config.cv_out[i].priority = static_cast<NotePriority>(in[offset++]);
+        config.cv_out[i].pitch_scale = in[4] >= 5 ? ReadUint16BE(in + offset) : 1000u;
+        if(in[4] >= 5)
+            offset += 2;
         if(static_cast<int>(config.cv_out[i].mode) < 0
            || config.cv_out[i].mode > CvOutMode::ChannelCc)
             return false;
         if(config.cv_out[i].channel > 15 || config.cv_out[i].cc > 127
-           || config.cv_out[i].priority > NotePriority::Lowest)
+           || config.cv_out[i].priority > NotePriority::Lowest
+           || config.cv_out[i].pitch_scale < 900 || config.cv_out[i].pitch_scale > 1100)
             return false;
     }
 
@@ -137,7 +155,7 @@ bool LoadCvGateConfig(const char* path, CvGateConfig& config)
     const FRESULT close_result = f_close(&file);
     if(read_result != FR_OK || close_result != FR_OK
        || (read != kFileSize && read != kFileSizeV3 && read != kFileSizeV2
-           && read != kFileSizeV1))
+           && read != kFileSizeV1 && read != kFileSizeV4))
         return false;
 
     return ReadConfig(data, config);

@@ -734,6 +734,15 @@ void UiRenderer::Render(const AppState&     state,
                             item == state.menu_page_cursor ? '>' : ' ',
                             NotePriorityName(state.cv_gate.cv_out[0].priority));
                         break;
+                    case CvGateMenuItem::CvOut1Scale:
+                        std::snprintf(
+                            line,
+                            sizeof(line),
+                            "%cO1 Scl %3d.%1d",
+                            item == state.menu_page_cursor ? '>' : ' ',
+                            static_cast<int>(state.cv_gate.cv_out[0].pitch_scale / 10),
+                            static_cast<int>(state.cv_gate.cv_out[0].pitch_scale % 10));
+                        break;
                     case CvGateMenuItem::Cv2Mode:
                         std::snprintf(
                             line,
@@ -791,6 +800,15 @@ void UiRenderer::Render(const AppState&     state,
                             "%cO2 Pri %s",
                             item == state.menu_page_cursor ? '>' : ' ',
                             NotePriorityName(state.cv_gate.cv_out[1].priority));
+                        break;
+                    case CvGateMenuItem::CvOut2Scale:
+                        std::snprintf(
+                            line,
+                            sizeof(line),
+                            "%cO2 Scl %3d.%1d",
+                            item == state.menu_page_cursor ? '>' : ' ',
+                            static_cast<int>(state.cv_gate.cv_out[1].pitch_scale / 10),
+                            static_cast<int>(state.cv_gate.cv_out[1].pitch_scale % 10));
                         break;
                 }
             }

@@ -47,6 +47,16 @@ float MidiNoteToVoltage(int note)
     return volts;
 }
 
+float ApplyPitchScale(float voltage, const CvOutputConfig& config)
+{
+    const float scaled = voltage * (static_cast<float>(config.pitch_scale) / 1000.0f);
+    if(scaled < 0.0f)
+        return 0.0f;
+    if(scaled > kCvOutMaxVolt)
+        return kCvOutMaxVolt;
+    return scaled;
+}
+
 int ResolutionDenominator(SyncResolution resolution)
 {
     switch(resolution)
@@ -170,7 +180,7 @@ float CvGateEngine::PitchVoltageForChannel(size_t                output_index,
         held_pitch_note_[output_index] = static_cast<int8_t>(note);
     else if(!playing)
         held_pitch_note_[output_index] = -1;
-    return MidiNoteToVoltage(held_pitch_note_[output_index]);
+    return ApplyPitchScale(MidiNoteToVoltage(held_pitch_note_[output_index]), config);
 }
 
 float CvGateEngine::CcVoltageForChannel(const MixerTransport& transport,

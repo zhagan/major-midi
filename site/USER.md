@@ -386,6 +386,8 @@ CV output modes:
 
 Each CV/gate page also exposes the related channel, CC number, sync resolution, trigger style, or note priority when that mode needs it.
 
+For pitch CV outputs, `O1 Scl` / `O2 Scl` trim the 1V/oct scaling from `90.0%` to `110.0%` in `0.1%` steps. Increase the scale if each octave measures slightly flat, and decrease it if each octave measures sharp.
+
 ## Sync
 
 Major MIDI has two sync behaviors:
