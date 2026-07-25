@@ -1,5 +1,6 @@
 #include "sysex_remote_control.h"
 
+#include <cstdio>
 #include <cstring>
 
 namespace major_midi
@@ -26,8 +27,8 @@ bool SysExRemoteControl::HandleUsbMidiEvent(const daisy::MidiEvent& msg,
     switch(command)
     {
         case Command::GetStatus: HandleGetStatus(usb_midi); break;
-        case Command::GetMidiEntry: HandleGetMidiEntry(msg, usb_midi); break;
-        case Command::GetSf2Entry: HandleGetSf2Entry(msg, usb_midi); break;
+        case Command::GetSelectedMidiPath: HandleGetSelectedMidiPath(usb_midi); break;
+        case Command::GetSelectedSf2Path: HandleGetSelectedSf2Path(usb_midi); break;
         case Command::LoadMidi: HandleLoadMidi(msg, usb_midi); break;
         case Command::LoadSf2: HandleLoadSf2(msg, usb_midi); break;
         case Command::Transport: HandleTransport(msg, usb_midi); break;
@@ -36,6 +37,10 @@ bool SysExRemoteControl::HandleUsbMidiEvent(const daisy::MidiEvent& msg,
         case Command::GetSongState: HandleGetSongState(usb_midi); break;
         case Command::SetSongState: HandleSetSongState(msg, usb_midi); break;
         case Command::SaveSongSettings: HandleSaveSongSettings(usb_midi); break;
+        case Command::GetMidiDirCount: HandleGetMidiDirCount(msg, usb_midi); break;
+        case Command::GetMidiDirEntry: HandleGetMidiDirEntry(msg, usb_midi); break;
+        case Command::GetSf2DirCount: HandleGetSf2DirCount(msg, usb_midi); break;
+        case Command::GetSf2DirEntry: HandleGetSf2DirEntry(msg, usb_midi); break;
         default:
             SendReply(usb_midi, command, Status::Invalid);
             break;
@@ -50,17 +55,39 @@ bool SysExRemoteControl::IsRemoteMessage(const daisy::MidiEvent& msg) const
            && msg.sysex_message_len >= 4 && msg.sysex_data[0] == kManufacturerId
            && msg.sysex_data[1] == kMagic0 && msg.sysex_data[2] == kMagic1
            && msg.sysex_data[3] >= static_cast<uint8_t>(Command::GetStatus)
-           && msg.sysex_data[3] <= static_cast<uint8_t>(Command::SaveSongSettings);
+           && msg.sysex_data[3] <= static_cast<uint8_t>(Command::GetSf2DirEntry);
+}
+
+bool SysExRemoteControl::ReadPathArg(const daisy::MidiEvent& msg,
+                                     size_t                  offset,
+                                     char*                   out_path,
+                                     size_t                  out_sz)
+{
+    if(out_path == nullptr || out_sz == 0)
+        return false;
+    out_path[0] = '\0';
+
+    if(msg.sysex_message_len <= offset)
+        return false;
+
+    const uint8_t len = msg.sysex_data[offset];
+    if(len == 0)
+        return true; // empty path == root, valid
+
+    if(msg.sysex_message_len < offset + 1 + len)
+        return false;
+
+    const size_t copy_len
+        = static_cast<size_t>(len) < (out_sz - 1) ? len : (out_sz - 1);
+    std::memcpy(out_path, msg.sysex_data + offset + 1, copy_len);
+    out_path[copy_len] = '\0';
+    return true;
 }
 
 void SysExRemoteControl::HandleGetStatus(daisy::MidiUsbHandler& usb_midi)
 {
-    uint8_t payload[16]{};
-    size_t  pos = 0;
-    pos += Write14(payload + pos, static_cast<uint16_t>(library_->MidiCount()));
-    pos += Write14(payload + pos, static_cast<uint16_t>(library_->SoundFontCount()));
-    pos += Write14(payload + pos, static_cast<uint16_t>(state_->selected_midi_index));
-    pos += Write14(payload + pos, static_cast<uint16_t>(state_->selected_sf2_index));
+    uint8_t payload[8]{};
+    size_t  pos    = 0;
     payload[pos++] = state_->transport_playing ? 1 : 0;
     pos += Write14(payload + pos, static_cast<uint16_t>(state_->bpm));
     pos += Write14(payload + pos, state_->current_measure);
@@ -68,109 +95,79 @@ void SysExRemoteControl::HandleGetStatus(daisy::MidiUsbHandler& usb_midi)
     SendReply(usb_midi, Command::GetStatus, Status::Ok, payload, pos);
 }
 
-void SysExRemoteControl::HandleGetMidiEntry(const daisy::MidiEvent& msg,
-                                            daisy::MidiUsbHandler& usb_midi)
+void SysExRemoteControl::HandleGetSelectedMidiPath(daisy::MidiUsbHandler& usb_midi)
 {
-    if(msg.sysex_message_len < 6)
-    {
-        SendReply(usb_midi, Command::GetMidiEntry, Status::Invalid);
-        return;
-    }
-
-    const uint16_t index = Read14(msg.sysex_data + 4);
-    if(index >= library_->MidiCount())
-    {
-        SendReply(usb_midi, Command::GetMidiEntry, Status::Range);
-        return;
-    }
-
-    const char* name = library_->MidiName(index);
-    const size_t name_len = std::strlen(name);
-    uint8_t payload[2 + 1 + MediaLibrary::kPathMax]{};
-    size_t  pos = 0;
-    pos += Write14(payload + pos, index);
-    payload[pos++] = static_cast<uint8_t>(name_len & 0x7F);
-    std::memcpy(payload + pos, name, name_len);
-    pos += name_len;
-    SendReply(usb_midi, Command::GetMidiEntry, Status::Ok, payload, pos);
+    const char*  path     = state_->selected_midi_path;
+    const size_t path_len = std::strlen(path);
+    uint8_t      payload[1 + MediaLibrary::kPathMax]{};
+    size_t       pos      = 0;
+    payload[pos++] = static_cast<uint8_t>(path_len & 0x7F);
+    std::memcpy(payload + pos, path, path_len);
+    pos += path_len;
+    SendReply(usb_midi, Command::GetSelectedMidiPath, Status::Ok, payload, pos);
 }
 
-void SysExRemoteControl::HandleGetSf2Entry(const daisy::MidiEvent& msg,
-                                           daisy::MidiUsbHandler& usb_midi)
+void SysExRemoteControl::HandleGetSelectedSf2Path(daisy::MidiUsbHandler& usb_midi)
 {
-    if(msg.sysex_message_len < 6)
-    {
-        SendReply(usb_midi, Command::GetSf2Entry, Status::Invalid);
-        return;
-    }
-
-    const uint16_t index = Read14(msg.sysex_data + 4);
-    if(index >= library_->SoundFontCount())
-    {
-        SendReply(usb_midi, Command::GetSf2Entry, Status::Range);
-        return;
-    }
-
-    const char* name = library_->SoundFontName(index);
-    const size_t name_len = std::strlen(name);
-    uint8_t payload[2 + 1 + MediaLibrary::kPathMax]{};
-    size_t  pos = 0;
-    pos += Write14(payload + pos, index);
-    payload[pos++] = static_cast<uint8_t>(name_len & 0x7F);
-    std::memcpy(payload + pos, name, name_len);
-    pos += name_len;
-    SendReply(usb_midi, Command::GetSf2Entry, Status::Ok, payload, pos);
+    const char*  path     = state_->selected_sf2_path;
+    const size_t path_len = std::strlen(path);
+    uint8_t      payload[1 + MediaLibrary::kPathMax]{};
+    size_t       pos      = 0;
+    payload[pos++] = static_cast<uint8_t>(path_len & 0x7F);
+    std::memcpy(payload + pos, path, path_len);
+    pos += path_len;
+    SendReply(usb_midi, Command::GetSelectedSf2Path, Status::Ok, payload, pos);
 }
 
 void SysExRemoteControl::HandleLoadMidi(const daisy::MidiEvent& msg,
                                         daisy::MidiUsbHandler& usb_midi)
 {
-    if(msg.sysex_message_len < 6)
+    char path[MediaLibrary::kPathMax]{};
+    if(!ReadPathArg(msg, 4, path, sizeof(path)))
     {
         SendReply(usb_midi, Command::LoadMidi, Status::Invalid);
         return;
     }
-
-    const uint16_t index = Read14(msg.sysex_data + 4);
-    if(index >= library_->MidiCount())
+    if(path[0] == '\0' || !library_->MidiFileExists(path))
     {
         SendReply(usb_midi, Command::LoadMidi, Status::Range);
         return;
     }
 
-    state_->selected_midi_index = index;
-    state_->pending_midi_load   = true;
-    state_->ui_mode             = UiMode::Performance;
-    state_->menu_page           = MenuPage::Main;
-    state_->menu_page_cursor    = 0;
-    state_->menu_root_cursor    = 0;
-    state_->menu_editing        = false;
+    std::snprintf(
+        state_->selected_midi_path, sizeof(state_->selected_midi_path), "%s", path);
+    state_->pending_midi_load = true;
+    state_->ui_mode           = UiMode::Performance;
+    state_->menu_page         = MenuPage::Main;
+    state_->menu_page_cursor  = 0;
+    state_->menu_root_cursor  = 0;
+    state_->menu_editing      = false;
     SendReply(usb_midi, Command::LoadMidi, Status::Ok);
 }
 
 void SysExRemoteControl::HandleLoadSf2(const daisy::MidiEvent& msg,
                                        daisy::MidiUsbHandler& usb_midi)
 {
-    if(msg.sysex_message_len < 6)
+    char path[MediaLibrary::kPathMax]{};
+    if(!ReadPathArg(msg, 4, path, sizeof(path)))
     {
         SendReply(usb_midi, Command::LoadSf2, Status::Invalid);
         return;
     }
-
-    const uint16_t index = Read14(msg.sysex_data + 4);
-    if(index >= library_->SoundFontCount())
+    if(path[0] == '\0' || !library_->SoundFontFileExists(path))
     {
         SendReply(usb_midi, Command::LoadSf2, Status::Range);
         return;
     }
 
-    state_->selected_sf2_index = index;
-    state_->pending_sf2_load   = true;
-    state_->ui_mode            = UiMode::Performance;
-    state_->menu_page          = MenuPage::Main;
-    state_->menu_page_cursor   = 0;
-    state_->menu_root_cursor   = 0;
-    state_->menu_editing       = false;
+    std::snprintf(
+        state_->selected_sf2_path, sizeof(state_->selected_sf2_path), "%s", path);
+    state_->pending_sf2_load = true;
+    state_->ui_mode          = UiMode::Performance;
+    state_->menu_page        = MenuPage::Main;
+    state_->menu_page_cursor = 0;
+    state_->menu_root_cursor = 0;
+    state_->menu_editing     = false;
     SendReply(usb_midi, Command::LoadSf2, Status::Ok);
 }
 
@@ -319,6 +316,114 @@ void SysExRemoteControl::HandleSaveSongSettings(daisy::MidiUsbHandler& usb_midi)
 {
     state_->pending_save_settings = true;
     SendReply(usb_midi, Command::SaveSongSettings, Status::Ok);
+}
+
+void SysExRemoteControl::HandleGetMidiDirCount(const daisy::MidiEvent& msg,
+                                               daisy::MidiUsbHandler& usb_midi)
+{
+    char dir_path[MediaLibrary::kPathMax]{};
+    if(!ReadPathArg(msg, 4, dir_path, sizeof(dir_path)))
+    {
+        SendReply(usb_midi, Command::GetMidiDirCount, Status::Invalid);
+        return;
+    }
+
+    const uint16_t count
+        = static_cast<uint16_t>(library_->MidiDirEntryCount(dir_path));
+    uint8_t payload[2]{};
+    const size_t pos = Write14(payload, count);
+    SendReply(usb_midi, Command::GetMidiDirCount, Status::Ok, payload, pos);
+}
+
+void SysExRemoteControl::HandleGetMidiDirEntry(const daisy::MidiEvent& msg,
+                                               daisy::MidiUsbHandler& usb_midi)
+{
+    char dir_path[MediaLibrary::kPathMax]{};
+    if(!ReadPathArg(msg, 4, dir_path, sizeof(dir_path)))
+    {
+        SendReply(usb_midi, Command::GetMidiDirEntry, Status::Invalid);
+        return;
+    }
+
+    const size_t index_offset = 5 + std::strlen(dir_path);
+    if(msg.sysex_message_len < index_offset + 2)
+    {
+        SendReply(usb_midi, Command::GetMidiDirEntry, Status::Invalid);
+        return;
+    }
+    const uint16_t index = Read14(msg.sysex_data + index_offset);
+
+    bool is_dir = false;
+    char name[MediaLibrary::kNameMax]{};
+    if(!library_->MidiDirEntryAt(dir_path, index, is_dir, name, sizeof(name)))
+    {
+        SendReply(usb_midi, Command::GetMidiDirEntry, Status::Range);
+        return;
+    }
+
+    const size_t name_len = std::strlen(name);
+    uint8_t      payload[2 + 1 + 1 + MediaLibrary::kNameMax]{};
+    size_t       pos = 0;
+    pos += Write14(payload + pos, index);
+    payload[pos++] = is_dir ? 1 : 0;
+    payload[pos++] = static_cast<uint8_t>(name_len & 0x7F);
+    std::memcpy(payload + pos, name, name_len);
+    pos += name_len;
+    SendReply(usb_midi, Command::GetMidiDirEntry, Status::Ok, payload, pos);
+}
+
+void SysExRemoteControl::HandleGetSf2DirCount(const daisy::MidiEvent& msg,
+                                              daisy::MidiUsbHandler& usb_midi)
+{
+    char dir_path[MediaLibrary::kPathMax]{};
+    if(!ReadPathArg(msg, 4, dir_path, sizeof(dir_path)))
+    {
+        SendReply(usb_midi, Command::GetSf2DirCount, Status::Invalid);
+        return;
+    }
+
+    const uint16_t count
+        = static_cast<uint16_t>(library_->SoundFontDirEntryCount(dir_path));
+    uint8_t payload[2]{};
+    const size_t pos = Write14(payload, count);
+    SendReply(usb_midi, Command::GetSf2DirCount, Status::Ok, payload, pos);
+}
+
+void SysExRemoteControl::HandleGetSf2DirEntry(const daisy::MidiEvent& msg,
+                                              daisy::MidiUsbHandler& usb_midi)
+{
+    char dir_path[MediaLibrary::kPathMax]{};
+    if(!ReadPathArg(msg, 4, dir_path, sizeof(dir_path)))
+    {
+        SendReply(usb_midi, Command::GetSf2DirEntry, Status::Invalid);
+        return;
+    }
+
+    const size_t index_offset = 5 + std::strlen(dir_path);
+    if(msg.sysex_message_len < index_offset + 2)
+    {
+        SendReply(usb_midi, Command::GetSf2DirEntry, Status::Invalid);
+        return;
+    }
+    const uint16_t index = Read14(msg.sysex_data + index_offset);
+
+    bool is_dir = false;
+    char name[MediaLibrary::kNameMax]{};
+    if(!library_->SoundFontDirEntryAt(dir_path, index, is_dir, name, sizeof(name)))
+    {
+        SendReply(usb_midi, Command::GetSf2DirEntry, Status::Range);
+        return;
+    }
+
+    const size_t name_len = std::strlen(name);
+    uint8_t      payload[2 + 1 + 1 + MediaLibrary::kNameMax]{};
+    size_t       pos = 0;
+    pos += Write14(payload + pos, index);
+    payload[pos++] = is_dir ? 1 : 0;
+    payload[pos++] = static_cast<uint8_t>(name_len & 0x7F);
+    std::memcpy(payload + pos, name, name_len);
+    pos += name_len;
+    SendReply(usb_midi, Command::GetSf2DirEntry, Status::Ok, payload, pos);
 }
 
 void SysExRemoteControl::SendReply(daisy::MidiUsbHandler& usb_midi,

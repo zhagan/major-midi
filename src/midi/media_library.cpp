@@ -88,25 +88,22 @@ void MediaLibrary::BuildFullPath(const char* base_path,
         std::snprintf(out, out_sz, "%s/%s", base_path, relative_path);
 }
 
-void MediaLibrary::ScanDirRecursive(const char* base_path,
-                                    const char* relative_path,
-                                    const char* ext,
-                                    char        dest[][kPathMax],
-                                    size_t&     count,
-                                    size_t      max_count)
+bool MediaLibrary::FindFirstRecursive(const char* base_path,
+                                      const char* relative_path,
+                                      const char* ext,
+                                      char*       out_relative_path,
+                                      size_t      out_sz) const
 {
-    if(count >= max_count)
-        return;
-
     char full_path[kPathMax + 16]{};
     BuildFullPath(base_path, relative_path, full_path, sizeof(full_path));
 
     DIR     dir;
     FILINFO fno;
     if(f_opendir(&dir, full_path) != FR_OK)
-        return;
+        return false;
 
-    while(f_readdir(&dir, &fno) == FR_OK && fno.fname[0] != '\0')
+    bool found = false;
+    while(!found && f_readdir(&dir, &fno) == FR_OK && fno.fname[0] != '\0')
     {
         if(IsHiddenName(fno.fname))
             continue;
@@ -120,14 +117,8 @@ void MediaLibrary::ScanDirRecursive(const char* base_path,
             else
                 std::snprintf(child_relative, sizeof(child_relative), "%s", fno.fname);
 
-            ScanDirRecursive(base_path,
-                             child_relative,
-                             ext,
-                             dest,
-                             count,
-                             max_count);
-            if(count >= max_count)
-                break;
+            if(FindFirstRecursive(base_path, child_relative, ext, out_relative_path, out_sz))
+                found = true;
             continue;
         }
 
@@ -141,52 +132,117 @@ void MediaLibrary::ScanDirRecursive(const char* base_path,
         else
             std::snprintf(relative_file, sizeof(relative_file), "%s", fno.fname);
 
-        const size_t copy_len = std::strlen(relative_file) < (kPathMax - 1)
-                                    ? std::strlen(relative_file)
-                                    : (kPathMax - 1);
-        std::memcpy(dest[count], relative_file, copy_len);
-        dest[count][copy_len] = '\0';
-        count++;
-        if(count >= max_count)
-            break;
+        CopyTrunc(out_relative_path, out_sz, relative_file);
+        found = true;
     }
 
     f_closedir(&dir);
+    return found;
 }
 
-size_t MediaLibrary::FindFileIndex(const char* path,
-                                   const char  file_paths[][kPathMax],
-                                   size_t      file_count) const
+size_t MediaLibrary::DirEntryCount(const char* base_path,
+                                   const char* ext,
+                                   const char* dir_relative_path) const
 {
-    if(path == nullptr || path[0] == '\0')
-        return file_count;
+    char full_path[kPathMax + 16]{};
+    BuildFullPath(base_path, dir_relative_path, full_path, sizeof(full_path));
 
-    for(size_t i = 0; i < file_count; i++)
+    DIR     dir;
+    FILINFO fno;
+    if(f_opendir(&dir, full_path) != FR_OK)
+        return 0;
+
+    size_t count = 0;
+    while(f_readdir(&dir, &fno) == FR_OK && fno.fname[0] != '\0')
     {
-        if(std::strncmp(file_paths[i], path, kPathMax) == 0)
-            return i;
+        if(IsHiddenName(fno.fname))
+            continue;
+        if(fno.fattrib & AM_DIR)
+            count++;
+        else if(HasExtCaseInsensitive(fno.fname, ext))
+            count++;
     }
 
-    return file_count;
+    f_closedir(&dir);
+    return count;
 }
 
-void MediaLibrary::RefreshBrowser(const char* base_path,
-                                  const char* ext,
-                                  char*       current_dir,
+bool MediaLibrary::DirEntryAt(const char* base_path,
+                              const char* ext,
+                              const char* dir_relative_path,
+                              size_t      index,
+                              bool&       out_is_dir,
+                              char*       out_name,
+                              size_t      out_name_sz) const
+{
+    char full_path[kPathMax + 16]{};
+    BuildFullPath(base_path, dir_relative_path, full_path, sizeof(full_path));
+
+    DIR     dir;
+    FILINFO fno;
+    if(f_opendir(&dir, full_path) != FR_OK)
+        return false;
+
+    bool   found = false;
+    size_t seen  = 0;
+
+    // Directories first, then extension-matched files -- same order the
+    // front-panel browser uses (RefreshBrowser), so index N means the same
+    // entry in both places.
+    while(f_readdir(&dir, &fno) == FR_OK && fno.fname[0] != '\0')
+    {
+        if(IsHiddenName(fno.fname) || (fno.fattrib & AM_DIR) == 0)
+            continue;
+        if(seen == index)
+        {
+            out_is_dir = true;
+            CopyTrunc(out_name, out_name_sz, fno.fname);
+            found = true;
+            break;
+        }
+        seen++;
+    }
+
+    if(!found)
+    {
+        f_rewinddir(&dir);
+        while(f_readdir(&dir, &fno) == FR_OK && fno.fname[0] != '\0')
+        {
+            if(IsHiddenName(fno.fname) || (fno.fattrib & AM_DIR) != 0
+               || !HasExtCaseInsensitive(fno.fname, ext))
+                continue;
+            if(seen == index)
+            {
+                out_is_dir = false;
+                CopyTrunc(out_name, out_name_sz, fno.fname);
+                found = true;
+                break;
+            }
+            seen++;
+        }
+    }
+
+    f_closedir(&dir);
+    return found;
+}
+
+void MediaLibrary::RefreshBrowser(const char*     base_path,
+                                  const char*     ext,
+                                  char*           current_dir,
                                   BrowserDirEntry entries[],
-                                  size_t&     count,
-                                  const char  file_paths[][kPathMax],
-                                  size_t      file_count)
+                                  size_t&         count,
+                                  size_t          max_count)
 {
     count = 0;
 
     if(current_dir == nullptr || entries == nullptr)
         return;
 
-    if(current_dir[0] != '\0' && count < kMaxBrowserEntries)
+    if(current_dir[0] != '\0' && count < max_count)
     {
-        entries[count].is_up  = true;
-        entries[count].is_dir = true;
+        entries[count]         = BrowserDirEntry{};
+        entries[count].is_up   = true;
+        entries[count].is_dir  = true;
         std::snprintf(entries[count].name, sizeof(entries[count].name), "[..]");
         count++;
     }
@@ -201,7 +257,7 @@ void MediaLibrary::RefreshBrowser(const char* base_path,
 
     while(f_readdir(&dir, &fno) == FR_OK && fno.fname[0] != '\0')
     {
-        if(count >= kMaxBrowserEntries)
+        if(count >= max_count)
             break;
         if(IsHiddenName(fno.fname) || (fno.fattrib & AM_DIR) == 0)
             continue;
@@ -216,42 +272,39 @@ void MediaLibrary::RefreshBrowser(const char* base_path,
     f_rewinddir(&dir);
     while(f_readdir(&dir, &fno) == FR_OK && fno.fname[0] != '\0')
     {
-        if(count >= kMaxBrowserEntries)
+        if(count >= max_count)
             break;
         if(IsHiddenName(fno.fname) || (fno.fattrib & AM_DIR) != 0
            || !HasExtCaseInsensitive(fno.fname, ext))
             continue;
 
-        char relative_file[kPathMax]{};
-        if(current_dir[0] != '\0')
-            std::snprintf(
-                relative_file, sizeof(relative_file), "%s/%s", current_dir, fno.fname);
-        else
-            std::snprintf(relative_file, sizeof(relative_file), "%s", fno.fname);
-
-        const size_t file_index = FindFileIndex(relative_file, file_paths, file_count);
-        if(file_index >= file_count)
-            continue;
-
         BrowserDirEntry& entry = entries[count];
         entry                  = BrowserDirEntry{};
-        entry.index            = file_index;
         CopyTrunc(entry.name, sizeof(entry.name), fno.fname);
+        if(current_dir[0] != '\0')
+            std::snprintf(entry.relative_path,
+                          sizeof(entry.relative_path),
+                          "%s/%s",
+                          current_dir,
+                          fno.fname);
+        else
+            std::snprintf(
+                entry.relative_path, sizeof(entry.relative_path), "%s", fno.fname);
         count++;
     }
 
     f_closedir(&dir);
 }
 
-bool MediaLibrary::BrowserSelect(const char* base_path,
-                                 const char* ext,
-                                 char*       current_dir,
+bool MediaLibrary::BrowserSelect(const char*     base_path,
+                                 const char*     ext,
+                                 char*           current_dir,
                                  BrowserDirEntry entries[],
-                                 size_t&     count,
-                                 size_t      cursor,
-                                 size_t&     selected_index,
-                                 const char  file_paths[][kPathMax],
-                                 size_t      file_count)
+                                 size_t&         count,
+                                 size_t          max_count,
+                                 size_t          cursor,
+                                 char*           out_relative_path,
+                                 size_t          out_sz)
 {
     if(cursor >= count)
         return false;
@@ -264,13 +317,7 @@ bool MediaLibrary::BrowserSelect(const char* base_path,
             *slash = '\0';
         else
             current_dir[0] = '\0';
-        RefreshBrowser(base_path,
-                       ext,
-                       current_dir,
-                       entries,
-                       count,
-                       file_paths,
-                       file_count);
+        RefreshBrowser(base_path, ext, current_dir, entries, count, max_count);
         return false;
     }
 
@@ -286,73 +333,79 @@ bool MediaLibrary::BrowserSelect(const char* base_path,
         {
             std::snprintf(current_dir, kPathMax, "%s", entry.name);
         }
-        RefreshBrowser(base_path,
-                       ext,
-                       current_dir,
-                       entries,
-                       count,
-                       file_paths,
-                       file_count);
+        RefreshBrowser(base_path, ext, current_dir, entries, count, max_count);
         return false;
     }
 
-    selected_index = entry.index;
+    if(out_relative_path != nullptr && out_sz > 0)
+        CopyTrunc(out_relative_path, out_sz, entry.relative_path);
     return true;
 }
 
 void MediaLibrary::Scan()
 {
-    midi_count_ = 0;
-    sf2_count_  = 0;
-    ScanDirRecursive("0:/midi", "", "mid", midi_files_, midi_count_, kMaxMidiFiles);
-    ScanDirRecursive(
-        "0:/soundfonts", "", "sf2", sf2_files_, sf2_count_, kMaxSoundFonts);
     ResetMidiBrowser();
     ResetSoundFontBrowser();
 }
 
-const char* MediaLibrary::MidiName(size_t index) const
+bool MediaLibrary::MidiFileExists(const char* relative_path) const
 {
-    return index < midi_count_ ? midi_files_[index] : "";
+    if(relative_path == nullptr || relative_path[0] == '\0')
+        return false;
+    char full_path[kPathMax + 16]{};
+    BuildFullPath("0:/midi", relative_path, full_path, sizeof(full_path));
+    FILINFO fno;
+    return f_stat(full_path, &fno) == FR_OK && (fno.fattrib & AM_DIR) == 0;
 }
 
-const char* MediaLibrary::SoundFontName(size_t index) const
+bool MediaLibrary::SoundFontFileExists(const char* relative_path) const
 {
-    return index < sf2_count_ ? sf2_files_[index] : "";
+    if(relative_path == nullptr || relative_path[0] == '\0')
+        return false;
+    char full_path[kPathMax + 16]{};
+    BuildFullPath("0:/soundfonts", relative_path, full_path, sizeof(full_path));
+    FILINFO fno;
+    return f_stat(full_path, &fno) == FR_OK && (fno.fattrib & AM_DIR) == 0;
 }
 
-size_t MediaLibrary::FindMidiByName(const char* name) const
+bool MediaLibrary::FindFirstMidiFile(char* out_relative_path, size_t out_sz) const
 {
-    return FindFileIndex(name, midi_files_, midi_count_);
+    if(out_relative_path == nullptr || out_sz == 0)
+        return false;
+    out_relative_path[0] = '\0';
+    return FindFirstRecursive("0:/midi", "", "mid", out_relative_path, out_sz);
 }
 
-size_t MediaLibrary::FindSoundFontByName(const char* name) const
+bool MediaLibrary::FindFirstSoundFont(char* out_relative_path, size_t out_sz) const
 {
-    return FindFileIndex(name, sf2_files_, sf2_count_);
+    if(out_relative_path == nullptr || out_sz == 0)
+        return false;
+    out_relative_path[0] = '\0';
+    return FindFirstRecursive("0:/soundfonts", "", "sf2", out_relative_path, out_sz);
 }
 
-void MediaLibrary::BuildMidiPath(size_t index, char* out, size_t out_sz) const
+void MediaLibrary::BuildMidiPath(const char* relative_path, char* out, size_t out_sz) const
 {
     if(out_sz == 0)
         return;
-    if(index >= midi_count_)
+    if(relative_path == nullptr || relative_path[0] == '\0')
     {
         out[0] = '\0';
         return;
     }
-    BuildFullPath("0:/midi", midi_files_[index], out, out_sz);
+    BuildFullPath("0:/midi", relative_path, out, out_sz);
 }
 
-void MediaLibrary::BuildSoundFontPath(size_t index, char* out, size_t out_sz) const
+void MediaLibrary::BuildSoundFontPath(const char* relative_path, char* out, size_t out_sz) const
 {
     if(out_sz == 0)
         return;
-    if(index >= sf2_count_)
+    if(relative_path == nullptr || relative_path[0] == '\0')
     {
         out[0] = '\0';
         return;
     }
-    BuildFullPath("0:/soundfonts", sf2_files_[index], out, out_sz);
+    BuildFullPath("0:/soundfonts", relative_path, out, out_sz);
 }
 
 void MediaLibrary::ResetMidiBrowser()
@@ -363,8 +416,7 @@ void MediaLibrary::ResetMidiBrowser()
                    midi_browser_dir_,
                    midi_browser_entries_,
                    midi_browser_count_,
-                   midi_files_,
-                   midi_count_);
+                   kMaxMidiBrowserEntries);
 }
 
 void MediaLibrary::ResetSoundFontBrowser()
@@ -375,8 +427,7 @@ void MediaLibrary::ResetSoundFontBrowser()
                    sf2_browser_dir_,
                    sf2_browser_entries_,
                    sf2_browser_count_,
-                   sf2_files_,
-                   sf2_count_);
+                   kMaxSf2BrowserEntries);
 }
 
 size_t MediaLibrary::MidiBrowserCount() const
@@ -409,60 +460,60 @@ bool MediaLibrary::SoundFontBrowserIsDirectory(size_t index) const
     return index < sf2_browser_count_ && sf2_browser_entries_[index].is_dir;
 }
 
-bool MediaLibrary::MidiBrowserSelect(size_t cursor, size_t& selected_index)
+bool MediaLibrary::MidiBrowserSelect(size_t cursor, char* out_relative_path, size_t out_sz)
 {
     return BrowserSelect("0:/midi",
                          "mid",
                          midi_browser_dir_,
                          midi_browser_entries_,
                          midi_browser_count_,
+                         kMaxMidiBrowserEntries,
                          cursor,
-                         selected_index,
-                         midi_files_,
-                         midi_count_);
+                         out_relative_path,
+                         out_sz);
 }
 
-bool MediaLibrary::SoundFontBrowserSelect(size_t cursor, size_t& selected_index)
+bool MediaLibrary::SoundFontBrowserSelect(size_t cursor, char* out_relative_path, size_t out_sz)
 {
     return BrowserSelect("0:/soundfonts",
                          "sf2",
                          sf2_browser_dir_,
                          sf2_browser_entries_,
                          sf2_browser_count_,
+                         kMaxSf2BrowserEntries,
                          cursor,
-                         selected_index,
-                         sf2_files_,
-                         sf2_count_);
+                         out_relative_path,
+                         out_sz);
 }
 
-BrowserEntry MediaLibrary::BrowserEntryAt(size_t cursor) const
+size_t MediaLibrary::MidiDirEntryCount(const char* dir_relative_path) const
 {
-    BrowserEntry entry{};
-    if(cursor == 0)
-    {
-        entry.kind = BrowserEntryKind::FxSettings;
-        return entry;
-    }
+    return DirEntryCount("0:/midi", "mid", dir_relative_path);
+}
 
-    if(cursor == 1)
-    {
-        entry.kind = BrowserEntryKind::SongSettings;
-        return entry;
-    }
+bool MediaLibrary::MidiDirEntryAt(const char* dir_relative_path,
+                                  size_t      index,
+                                  bool&       out_is_dir,
+                                  char*       out_name,
+                                  size_t      out_name_sz) const
+{
+    return DirEntryAt(
+        "0:/midi", "mid", dir_relative_path, index, out_is_dir, out_name, out_name_sz);
+}
 
-    cursor -= 2;
-    if(cursor < midi_count_)
-    {
-        entry.kind  = BrowserEntryKind::Midi;
-        entry.index = cursor;
-        return entry;
-    }
+size_t MediaLibrary::SoundFontDirEntryCount(const char* dir_relative_path) const
+{
+    return DirEntryCount("0:/soundfonts", "sf2", dir_relative_path);
+}
 
-    entry.kind  = BrowserEntryKind::SoundFont;
-    entry.index = cursor >= midi_count_ ? (cursor - midi_count_) : 0;
-    if(entry.index >= sf2_count_)
-        entry.index = sf2_count_ > 0 ? (sf2_count_ - 1) : 0;
-    return entry;
+bool MediaLibrary::SoundFontDirEntryAt(const char* dir_relative_path,
+                                      size_t      index,
+                                      bool&       out_is_dir,
+                                      char*       out_name,
+                                      size_t      out_name_sz) const
+{
+    return DirEntryAt(
+        "0:/soundfonts", "sf2", dir_relative_path, index, out_is_dir, out_name, out_name_sz);
 }
 
 } // namespace major_midi

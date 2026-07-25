@@ -805,11 +805,11 @@ void UiController::ActivateMenuPage(MediaLibrary& library, uint32_t now_ms)
 
         case MenuPage::LoadMidi:
         {
-            size_t selected_index = state_->selected_midi_index;
-            if(library.MidiBrowserSelect(state_->menu_page_cursor, selected_index))
+            if(library.MidiBrowserSelect(state_->menu_page_cursor,
+                                         state_->selected_midi_path,
+                                         sizeof(state_->selected_midi_path)))
             {
-                state_->selected_midi_index = selected_index;
-                state_->pending_midi_load   = true;
+                state_->pending_midi_load = true;
                 SetOverlay(*state_, "Load MIDI", now_ms);
             }
             else
@@ -822,11 +822,11 @@ void UiController::ActivateMenuPage(MediaLibrary& library, uint32_t now_ms)
 
         case MenuPage::LoadSf2:
         {
-            size_t selected_index = state_->selected_sf2_index;
-            if(library.SoundFontBrowserSelect(state_->menu_page_cursor, selected_index))
+            if(library.SoundFontBrowserSelect(state_->menu_page_cursor,
+                                              state_->selected_sf2_path,
+                                              sizeof(state_->selected_sf2_path)))
             {
-                state_->selected_sf2_index = selected_index;
-                state_->pending_sf2_load   = true;
+                state_->pending_sf2_load = true;
                 SetOverlay(*state_, "Load SF2", now_ms);
             }
             else

@@ -26,17 +26,21 @@ class SysExRemoteControl
 
     enum class Command : uint8_t
     {
-        GetStatus = 0x10,
-        GetMidiEntry = 0x11,
-        GetSf2Entry = 0x12,
-        LoadMidi = 0x13,
-        LoadSf2 = 0x14,
-        Transport = 0x15,
-        GetChannelState = 0x16,
-        SetChannelState = 0x17,
-        GetSongState = 0x18,
-        SetSongState = 0x19,
-        SaveSongSettings = 0x1A,
+        GetStatus           = 0x10,
+        GetSelectedMidiPath = 0x11,
+        GetSelectedSf2Path  = 0x12,
+        LoadMidi            = 0x13,
+        LoadSf2             = 0x14,
+        Transport           = 0x15,
+        GetChannelState     = 0x16,
+        SetChannelState     = 0x17,
+        GetSongState        = 0x18,
+        SetSongState        = 0x19,
+        SaveSongSettings    = 0x1A,
+        GetMidiDirCount     = 0x1B,
+        GetMidiDirEntry     = 0x1C,
+        GetSf2DirCount      = 0x1D,
+        GetSf2DirEntry      = 0x1E,
     };
 
     enum class Status : uint8_t
@@ -48,8 +52,8 @@ class SysExRemoteControl
 
     bool IsRemoteMessage(const daisy::MidiEvent& msg) const;
     void HandleGetStatus(daisy::MidiUsbHandler& usb_midi);
-    void HandleGetMidiEntry(const daisy::MidiEvent& msg, daisy::MidiUsbHandler& usb_midi);
-    void HandleGetSf2Entry(const daisy::MidiEvent& msg, daisy::MidiUsbHandler& usb_midi);
+    void HandleGetSelectedMidiPath(daisy::MidiUsbHandler& usb_midi);
+    void HandleGetSelectedSf2Path(daisy::MidiUsbHandler& usb_midi);
     void HandleLoadMidi(const daisy::MidiEvent& msg, daisy::MidiUsbHandler& usb_midi);
     void HandleLoadSf2(const daisy::MidiEvent& msg, daisy::MidiUsbHandler& usb_midi);
     void HandleTransport(const daisy::MidiEvent& msg, daisy::MidiUsbHandler& usb_midi);
@@ -58,6 +62,15 @@ class SysExRemoteControl
     void HandleGetSongState(daisy::MidiUsbHandler& usb_midi);
     void HandleSetSongState(const daisy::MidiEvent& msg, daisy::MidiUsbHandler& usb_midi);
     void HandleSaveSongSettings(daisy::MidiUsbHandler& usb_midi);
+    void HandleGetMidiDirCount(const daisy::MidiEvent& msg, daisy::MidiUsbHandler& usb_midi);
+    void HandleGetMidiDirEntry(const daisy::MidiEvent& msg, daisy::MidiUsbHandler& usb_midi);
+    void HandleGetSf2DirCount(const daisy::MidiEvent& msg, daisy::MidiUsbHandler& usb_midi);
+    void HandleGetSf2DirEntry(const daisy::MidiEvent& msg, daisy::MidiUsbHandler& usb_midi);
+
+    static bool ReadPathArg(const daisy::MidiEvent& msg,
+                            size_t                  offset,
+                            char*                   out_path,
+                            size_t                  out_sz);
 
     void SendReply(daisy::MidiUsbHandler& usb_midi,
                    Command               command,

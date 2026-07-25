@@ -46,10 +46,10 @@ Most of the application lifecycle is coordinated from `src/main.cpp`. The boot s
 
 1. `InitDefaultState()` and UI/splash init.
 2. `SdMount()`.
-3. `media_library.Scan()` (recursive scan of `0:/midi` and `0:/soundfonts`).
+3. `media_library.Scan()` — this only resets the two front-panel folder browsers to root; it does **not** walk the whole SD card into RAM (see the `media_library.*` note below).
 4. If the SD card mounted: `LoadBootState()` restores the last MIDI filename and general UI prefs from `0:/major_midi_boot.cfg`.
 5. Synth, transport, and CV/gate engine init.
-6. Resolve `selected_midi_index` from the restored filename (`FindMidiByName`, defaults to `0`); `selected_sf2_index` starts at `0`.
+6. Resolve `selected_midi_path`: if the restored filename still exists (`MidiFileExists`), adopt it; otherwise fall back to `FindFirstMidiFile()`. `selected_sf2_path` is always set via `FindFirstSoundFont()` (there's no persisted "last SF2" independent of the per-song config).
 7. If the SD card mounted: `LoadSelectedMedia(true, true, now)` opens the SF2, opens the MIDI file, and — inside that same call — loads the per-song `.cfg` via `LoadSongConfig()`, which can override the SF2 selection made in step 6.
 8. USB MIDI init and `StartReceive()`.
 9. `sysex_file_transfer.Init(...)` and `sysex_remote_control.Init(&app_state, &media_library, SyncLoopStateForRemote, nullptr)` wire the two SysEx handlers into the USB MIDI receive path.
@@ -91,7 +91,7 @@ The playback path is spread across the MIDI and synth modules:
 | --- | --- |
 | `src/midi/smf_player.*` | MIDI file parsing, playback state, transport |
 | `src/midi/mixer_transport.*` | Channel state, mixing, timing, and transport-facing playback logic. Global transpose (`sf2_transpose`) explicitly skips the drum channel (index 9 / MIDI channel 10). |
-| `src/midi/media_library.*` | SD-card scanning and file browser model. `kMaxMidiFiles=256`, `kMaxSoundFonts=32` total; per-folder browser view caps at `kMaxMidiBrowserEntries=128` / `kMaxSf2BrowserEntries=32`. Lives in SDRAM (`DSY_SDRAM_BSS`) to fit the larger MIDI capacity. |
+| `src/midi/media_library.*` | Live, per-folder SD-card browsing — no whole-card scan or global file-count cap. Files are identified by relative path (e.g. `set1/track01.mid`), not index; `AppState::selected_midi_path`/`selected_sf2_path` carry that identity directly. A single folder's browser view still caps at `kMaxMidiBrowserEntries=128` / `kMaxSf2BrowserEntries=32` entries (front panel) — split a very large folder into subfolders if you hit that. `FindFirstMidiFile()`/`FindFirstSoundFont()` do an early-exit recursive walk, used only as a fallback when the previously-selected file is gone. |
 | `src/midi/scheduler.*` | Scheduled MIDI output timing |
 | `src/synth/synth_tsf.*` | SoundFont loading and synth voice handling. Voices field is `0`-`32`; `0` disables the synth entirely. FX (reverb/chorus) auto-bypass at ≥16 active voices and restore at ≤12 (hysteresis), to protect CPU headroom. |
 | `src/midi/sysex_remote_control.*` | SysEx command protocol for the browser-based remote (`docs/remote.html`) — see below |
@@ -108,23 +108,29 @@ Request: F0 7D 4D 4D <cmd> [payload...] F7
 Reply:   F0 7D 4D 4D <cmd> <status> [payload...] F7
 ```
 
-Status bytes: `0x00` OK, `0x01` Invalid packet, `0x02` Out of range. Multi-byte integers are packed 7-bit LSB-first: 14-bit values as 2 bytes, 28-bit values as 4 bytes.
+Status bytes: `0x00` OK, `0x01` Invalid packet, `0x02` Out of range. Multi-byte integers are packed 7-bit LSB-first: 14-bit values as 2 bytes, 28-bit values as 4 bytes. Paths/names are length-prefixed (1 byte length + raw bytes, ASCII only — same convention as elsewhere in the firmware). **Hard ceiling: every request and reply must fit in `SYSEX_BUFFER_LEN = 128` bytes total** (`libDaisy/src/hid/midi_parser.cpp`) — that's why file/directory selection is split into small single-value commands rather than one large batched reply, and why `kReplyMax = 120` in `sysex_remote_control.h` sits just under that ceiling.
+
+There is no global flat file index anymore (see `media_library.*` above) — the remote enumerates one directory at a time by relative path, mirroring the front-panel browser, and loads/selects files by full relative path instead of index.
 
 | Cmd | Name | Request payload | Reply payload |
 | --- | --- | --- | --- |
-| `0x10` | GetStatus | — | midiCount(14b), sf2Count(14b), selectedMidiIndex(14b), selectedSf2Index(14b), playing(1B), bpm(14b), measure(14b), beat(1B) |
-| `0x11` | GetMidiEntry | index(14b) | index(14b), nameLen(1B), name bytes |
-| `0x12` | GetSf2Entry | index(14b) | index(14b), nameLen(1B), name bytes |
-| `0x13` | LoadMidi | index(14b) | status only |
-| `0x14` | LoadSf2 | index(14b) | status only |
+| `0x10` | GetStatus | — | playing(1B), bpm(14b), measure(14b), beat(1B) |
+| `0x11` | GetSelectedMidiPath | — | pathLen(1B), path bytes |
+| `0x12` | GetSelectedSf2Path | — | pathLen(1B), path bytes |
+| `0x13` | LoadMidi | pathLen(1B), path bytes | status only (`Range` if the path doesn't exist) |
+| `0x14` | LoadSf2 | pathLen(1B), path bytes | status only |
 | `0x15` | Transport | action(1B): `0x00` stop, `0x01` play, `0x02` toggle | resulting `transport_playing` (1B) |
 | `0x16` | GetChannelState | channel(14b), `<16` | index(14b), volume, pan, reverb_send, chorus_send (1B each, 0-127), muted(1B), program_override(14b, `128`=none), current_program(1B) |
 | `0x17` | SetChannelState | index(14b), volume, pan, reverb_send, chorus_send, muted, program(14b, `128` clears override) | index(14b) |
 | `0x18` | GetSongState | — | bpmOverride(14b), loopEnabled(1B), loopStart(28b), loopLength(28b) |
 | `0x19` | SetSongState | bpmOverride(14b, ≤300), loopEnabled(1B), loopStart(28b), loopLength(28b, nonzero) | status only |
 | `0x1A` | SaveSongSettings | — | status only (sets `pending_save_settings`, same as `Song > Save Song CFG`) |
+| `0x1B` | GetMidiDirCount | dirPathLen(1B), dir path bytes (empty = root) | count(14b) |
+| `0x1C` | GetMidiDirEntry | dirPathLen(1B), dir path bytes, index(14b) | index(14b), isDir(1B), nameLen(1B), name bytes (leaf name only, ≤`kNameMax`=32) |
+| `0x1D` | GetSf2DirCount | dirPathLen(1B), dir path bytes | count(14b) |
+| `0x1E` | GetSf2DirEntry | dirPathLen(1B), dir path bytes, index(14b) | index(14b), isDir(1B), nameLen(1B), name bytes |
 
-`LoadMidi`/`LoadSf2` push the selection into `pending_midi_load`/`pending_sf2_load` and force the UI back to Performance/Main menu. `SetSongState` calls back into `SyncLoopStateForRemote()` (wired in `main.cpp`) so loop display fields stay in sync.
+`LoadMidi`/`LoadSf2` push the selection into `pending_midi_load`/`pending_sf2_load` and force the UI back to Performance/Main menu. `SetSongState` calls back into `SyncLoopStateForRemote()` (wired in `main.cpp`) so loop display fields stay in sync. Directory entries are returned directories-first-then-files, in the same order `MediaLibrary::DirEntryAt()` walks them — matches the front panel's own folder browser ordering.
 
 ## SysEx File Transfer Protocol
 

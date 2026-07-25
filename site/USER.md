@@ -35,7 +35,7 @@ Example:
 
 Hidden files and AppleDouble files are ignored.
 
-The scanner indexes up to 256 `.mid` files and 32 `.sf2` files in total across all subfolders. When browsing a single folder in `Load MIDI` or `Load SF2`, the visible list is separately capped at 128 entries for a MIDI folder and 32 entries for a SoundFont folder — if one folder holds more files than that, split them across subfolders so everything is reachable.
+There's no limit on how many `.mid` or `.sf2` files the card can hold in total — folders are browsed live, not pre-scanned into memory. The only cap is per folder: browsing a single folder in `Load MIDI` or `Load SF2` shows up to 128 entries for a MIDI folder and 32 entries for a SoundFont folder — if one folder holds more files than that, split them across subfolders so everything is reachable.
 
 ## Boot And Loading
 
