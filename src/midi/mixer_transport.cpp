@@ -17,6 +17,14 @@ constexpr uint8_t  kActivityNote            = 1u << 0;
 constexpr uint8_t  kActivityCc              = 1u << 1;
 constexpr uint8_t  kActivityProgram         = 1u << 2;
 constexpr uint8_t  kActivityPitch           = 1u << 3;
+
+// How fast a user/song-driven tempo change is allowed to glide, in BPM per
+// second of wall-clock time (derived from sample_clock_ deltas). A small
+// knob nudge ramps in a few milliseconds; a large jump takes proportionally
+// longer. External clock sync (already EMA-smoothed upstream) and looped
+// playback (which restarts via a full reseek) bypass this and apply
+// instantly instead - see MixerTransport::Update().
+constexpr float kTempoRampBpmPerSecond = 240.0f;
 }
 
 void MixerTransport::Init(float sample_rate, SmfPlayer& player)
@@ -1005,56 +1013,87 @@ void MixerTransport::Update(const AppState& state)
     if(state.bpm != applied_bpm_)
     {
         const bool     had_applied_bpm = applied_bpm_ > 0;
-        const uint64_t current_cycle   = CurrentCycleSample();
-        const uint64_t current_tick    = CurrentSongTick();
-        const double   old_bpm         = had_applied_bpm ? static_cast<double>(applied_bpm_)
-                                                         : static_cast<double>(state.bpm);
-        const double   new_bpm         = state.bpm > 0 ? static_cast<double>(state.bpm)
-                                                       : old_bpm;
-        const double   ratio           = (new_bpm > 0.0) ? (old_bpm / new_bpm) : 1.0;
-        const float scale = file_bpm_ > 0.0f ? static_cast<float>(state.bpm) / file_bpm_
-                                             : 1.0f;
-        player_->SetTempoScale(scale, sample_clock_);
-        if((player_->IsPlaying() || loop_cache_playback_) && had_applied_bpm)
+        const bool     ramp_eligible
+            = had_applied_bpm && !state.sync_external
+              && !(loop_active_ && state.transport_playing);
+
+        int next_bpm = state.bpm;
+        if(ramp_eligible && sample_rate_ > 0.0f)
         {
-            if(loop_active_ && state.transport_playing)
-            {
-                const uint64_t loop_start_tick   = requested_loop_start_tick;
-                const uint64_t loop_length_ticks = requested_loop_length_tick;
-                const uint64_t ticks_into_cycle
-                    = current_tick > loop_start_tick ? (current_tick - loop_start_tick) : 0;
-                const uint64_t clamped_ticks_into_cycle
-                    = loop_length_ticks > 0
-                          ? (ticks_into_cycle < loop_length_ticks ? ticks_into_cycle
-                                                                  : (loop_length_ticks - 1))
-                          : 0;
-                const uint64_t cycle_sample
-                    = player_->SamplesFromTicksRange(loop_start_tick, clamped_ticks_into_cycle);
-
-                ClearQueues();
-                ResetLoopCachePlayback();
-                loop_cache_valid_ = false;
-                EnsureLoopCache(state);
-
-                player_->SeekToSample(player_->SamplesFromTicks(current_tick), sample_clock_);
-                play_start_sample_  = sample_clock_ >= cycle_sample ? (sample_clock_ - cycle_sample)
-                                                                    : 0;
-                play_start_ticks_   = loop_start_tick;
-                phase_start_sample_ = play_start_sample_;
-                phase_start_ticks_  = loop_start_tick;
-                loop_length_samples_ = LoopLengthSamples(state);
-                loop_end_sample_     = phase_start_sample_ + loop_length_samples_;
-            }
-            else
-            {
-                RemapQueuedEventTimes(sample_clock_, ratio);
-                const uint64_t new_ticks_into_cycle = player_->TicksFromSamples(current_cycle);
-                phase_start_ticks_ = current_tick >= new_ticks_into_cycle
-                                         ? (current_tick - new_ticks_into_cycle)
-                                         : 0;
-            }
+            const uint64_t elapsed_samples = sample_clock_ >= bpm_ramp_last_sample_
+                                                  ? (sample_clock_ - bpm_ramp_last_sample_)
+                                                  : 0;
+            const float elapsed_seconds = static_cast<float>(elapsed_samples) / sample_rate_;
+            const int   max_step
+                = elapsed_seconds > 0.0f
+                      ? static_cast<int>(kTempoRampBpmPerSecond * elapsed_seconds) : 0;
+            const int diff     = state.bpm - applied_bpm_;
+            const int abs_diff = diff < 0 ? -diff : diff;
+            if(abs_diff > max_step)
+                next_bpm = applied_bpm_ + (diff > 0 ? max_step : -max_step);
         }
-        applied_bpm_ = state.bpm;
+
+        // If next_bpm == applied_bpm_, the ramp is waiting for more elapsed
+        // time to justify at least a 1 BPM step: skip the remap work below
+        // (avoids IRQ-blocked queue churn on a no-op every main-loop
+        // iteration) without resetting the ramp timer, so elapsed time
+        // keeps accumulating toward the next real step.
+        if(next_bpm != applied_bpm_)
+        {
+            bpm_ramp_last_sample_ = sample_clock_;
+
+            const uint64_t current_cycle   = CurrentCycleSample();
+            const uint64_t current_tick    = CurrentSongTick();
+            const double   old_bpm         = had_applied_bpm ? static_cast<double>(applied_bpm_)
+                                                             : static_cast<double>(next_bpm);
+            const double   new_bpm         = next_bpm > 0 ? static_cast<double>(next_bpm)
+                                                           : old_bpm;
+            const double   ratio           = (new_bpm > 0.0) ? (old_bpm / new_bpm) : 1.0;
+            const float scale = file_bpm_ > 0.0f ? static_cast<float>(next_bpm) / file_bpm_
+                                                 : 1.0f;
+            player_->SetTempoScale(scale, sample_clock_);
+            if((player_->IsPlaying() || loop_cache_playback_) && had_applied_bpm)
+            {
+                if(loop_active_ && state.transport_playing)
+                {
+                    const uint64_t loop_start_tick   = requested_loop_start_tick;
+                    const uint64_t loop_length_ticks = requested_loop_length_tick;
+                    const uint64_t ticks_into_cycle
+                        = current_tick > loop_start_tick ? (current_tick - loop_start_tick) : 0;
+                    const uint64_t clamped_ticks_into_cycle
+                        = loop_length_ticks > 0
+                              ? (ticks_into_cycle < loop_length_ticks ? ticks_into_cycle
+                                                                      : (loop_length_ticks - 1))
+                              : 0;
+                    const uint64_t cycle_sample
+                        = player_->SamplesFromTicksRange(loop_start_tick, clamped_ticks_into_cycle);
+
+                    FlushLoopBoundaryNotes();
+                    ClearQueues();
+                    ResetLoopCachePlayback();
+                    loop_cache_valid_ = false;
+                    EnsureLoopCache(state);
+
+                    player_->SeekToSample(player_->SamplesFromTicks(current_tick), sample_clock_);
+                    play_start_sample_  = sample_clock_ >= cycle_sample ? (sample_clock_ - cycle_sample)
+                                                                        : 0;
+                    play_start_ticks_   = loop_start_tick;
+                    phase_start_sample_ = play_start_sample_;
+                    phase_start_ticks_  = loop_start_tick;
+                    loop_length_samples_ = LoopLengthSamples(state);
+                    loop_end_sample_     = phase_start_sample_ + loop_length_samples_;
+                }
+                else
+                {
+                    RemapQueuedEventTimes(sample_clock_, ratio);
+                    const uint64_t new_ticks_into_cycle = player_->TicksFromSamples(current_cycle);
+                    phase_start_ticks_ = current_tick >= new_ticks_into_cycle
+                                             ? (current_tick - new_ticks_into_cycle)
+                                             : 0;
+                }
+            }
+            applied_bpm_ = next_bpm;
+        }
     }
 
     if(loop_settings_changed && state.transport_playing)
