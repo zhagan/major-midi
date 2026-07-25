@@ -1,6 +1,6 @@
 # Major MIDI
 
-Major MIDI is a Daisy Patch SM firmware for playing Standard MIDI Files from SD card through a SoundFont 2 synth engine, with front-panel mixing, live MIDI input, internal or external sync, saved song settings, MIDI routing, and assignable CV/gate I/O.
+Major MIDI is Daisy Patch SM firmware (STM32H750, Cortex-M7) for playing Standard MIDI Files from an SD card through a SoundFont 2 synth engine, with front-panel mixing, live MIDI input, internal or external sync, saved song settings, MIDI routing, and assignable CV/gate I/O.
 
 ## Quick Start
 
@@ -35,6 +35,8 @@ Example:
 
 Hidden files and AppleDouble files are ignored.
 
+The scanner indexes up to 256 `.mid` files and 32 `.sf2` files in total across all subfolders. When browsing a single folder in `Load MIDI` or `Load SF2`, the visible list is separately capped at 128 entries for a MIDI folder and 32 entries for a SoundFont folder — if one folder holds more files than that, split them across subfolders so everything is reachable.
+
 ## Boot And Loading
 
 On boot, Major MIDI:
@@ -60,23 +62,25 @@ If both a MIDI file and an SF2 are available, the unit loads them automatically 
 | Encoder press | Shift, confirm, enter/exit edit modes |
 | OLED | Current mode, transport, file names, and parameter values |
 
+`B1..B4` each have an LED that flashes briefly whenever incoming MIDI activity hits a channel in that button's bank, independent of which bank is currently selected on screen.
+
 The sync source is a hardware switch. Internal sync free-runs from the current BPM. External sync follows incoming MIDI clock or configured gate sync.
 
 ## Performance View
 
 Performance mode is the default screen.
 
-Top-line fields show:
+The top line shows:
 
 | Field | Meaning |
 | --- | --- |
 | `STP` or `PLY` | Stopped or playing |
+| Active page name | The current knob page, spelled out (`Volume`, `Pan`, `Reverb`, `Chorus`, `Program`, `MUTE PAGE`, `BPM`) |
 | BPM | Current transport BPM |
 | Measure and beat | Current musical position |
 | `B1..B4` | Active bank |
-| `V`, `P`, `R`, `C`, `G`, `M`, `BPM` | Active knob page |
 
-The screen also shows the current MIDI file, the current SoundFont, and four visible channels from the selected bank.
+The screen also shows the current MIDI file, the current SoundFont, and four visible channels from the selected bank. Each channel row is labeled with a single-letter code for the value it's showing (`V`, `P`, `R`, `C`, `G`, `M`) — those letters only appear in the per-channel grid, not on the top status line.
 
 ## Banks And Knob Pages
 
@@ -93,15 +97,15 @@ Press `B1..B4` to select a bank.
 
 Turn the encoder in performance mode to cycle knob pages:
 
-| Page | Function |
-| --- | --- |
-| `V` | Volume |
-| `P` | Pan |
-| `R` | Reverb send |
-| `C` | Chorus send |
-| `G` | Program override |
-| `M` | Mute |
-| `BPM` | Tempo edit page |
+| Page | Row letter | Function |
+| --- | --- | --- |
+| Volume | `V` | Volume |
+| Pan | `P` | Pan |
+| Reverb | `R` | Reverb send |
+| Chorus | `C` | Chorus send |
+| Program | `G` | Program override |
+| Mute | `M` | Mute |
+| BPM | `BPM` | Tempo edit page |
 
 `K1..K4` always control the four visible channels for the active page.
 
@@ -118,24 +122,24 @@ To edit tempo:
 3. Turn the encoder to set BPM from `20` to `300`.
 4. Tap the encoder again to lock BPM.
 
-If a song BPM override is saved for the current MIDI file, that override is applied when the song loads.
+BPM is hard-clamped to the 20-300 range everywhere it can be set (performance page, Song BPM override, and the web remote). If a song BPM override is saved for the current MIDI file, that override is applied when the song loads.
 
 ## Channel Focus
 
-Long-press one of `B1..B4` in performance mode to focus that visible channel.
+Long-press one of `B1..B4` in performance mode to focus that visible channel. This is disabled while the `Mute` knob page is active — on that page, a plain press of `B1..B4` toggles mute directly instead (see Mute Page below).
 
 Channel focus shows:
 
 | Item | Meaning |
 | --- | --- |
 | Channel and bank | Which channel is selected |
-| Program | Current program or override |
+| Program | Current program or override, marked `OVR` for a manual override or `MID` when following the file |
 | Program name | Current GM/SF2 program label when available |
 | Volume and pan | Current mix values |
 | Reverb and chorus | Current send values |
 | Mute state | Per-channel mute status |
 
-Tap the encoder to leave channel focus and return to the normal bank view.
+Turn the encoder to move between fields, cycling `Mute` → `Volume` → `Pan` → `Reverb` → `Chorus` → `Program`. Tap the encoder to enter edit mode for the selected field, turn to adjust it, then tap again to lock it back. Long-press the encoder to leave channel focus entirely and return to the normal bank view — a plain tap only toggles edit mode, it does not exit.
 
 ## Mute Page
 
@@ -158,9 +162,11 @@ Press the button combos below to open alternate views:
 | `B1 + B3` | Transport/song info |
 | `B1 + B4` | Loop edit |
 
+You can jump directly between MIDI monitor, transport view, and loop edit using these same combos without returning to performance mode first. The combos are only ignored while a menu is open.
+
 ### MIDI Monitor
 
-The MIDI monitor shows the most recent note, pitch bend, and CC activity for each channel.
+The MIDI monitor shows the most recent note, pitch bend, and CC activity for each channel, five channels at a time. Scroll to reach the rest.
 
 Controls:
 
@@ -190,7 +196,7 @@ Editable fields:
 | `St T` | Start tick |
 | `Ln M` | Loop length in measures |
 | `Ln B` | Additional beats |
-| `Ln T` | Absolute length in ticks |
+| `Ln T` | Absolute length in ticks (up to 2,000,000,000) |
 
 Controls:
 
@@ -226,11 +232,13 @@ Main menu pages:
 | `Load SF2` | Browse and load `.sf2` files |
 | `General` | UI preferences |
 | `FX` | Global synth FX tuning |
-| `Song` | Song-level loop and tempo settings |
+| `Song` | Song-level loop, tempo, and quick-save settings |
 | `SF2` | Synth and per-channel settings |
 | `MIDI` | USB/UART output routing |
 | `CV/Gate` | CV and gate assignment |
 | `Save All` | Write config files safely |
+
+`Save All` opens a confirmation page (`Confirm Save` / `Cancel`) rather than saving immediately, and it is refused with a `Stop Playback First` message if the transport is playing or any channel gate is currently active.
 
 ## Load MIDI And Load SF2
 
@@ -252,24 +260,28 @@ General settings:
 
 | Item | Meaning |
 | --- | --- |
-| `Saver` | Screen saver timeout |
+| `Saver` | Screen saver timeout: `Off`, `10s`, `30s`, `1m`, `2m`, `5m`, `10m`, `30m`, or `1h` (default `1h`) |
 | `Knobs` | `Pickup` or `Instant` |
 | `Enc` | Encoder direction |
-| `OLED X` | Horizontal OLED column offset |
+| `OLED X` | Horizontal OLED column offset, `0`-`8` |
+
+The screen saver only engages in performance mode, and only after the timeout has passed with no button/encoder/knob activity and no overlay message showing.
 
 ## FX
 
 FX settings are global, not per-channel.
 
-| Item | Meaning |
-| --- | --- |
-| `Rev Time` | Reverb time |
-| `Rev LPF` | Reverb low-pass filter |
-| `Rev HPF` | Reverb high-pass filter |
-| `Ch Depth` | Chorus depth |
-| `Ch Speed` | Chorus speed |
+| Item | Meaning | Range |
+| --- | --- | --- |
+| `Rev Time` | Reverb time | `0.0` - `1.0` |
+| `Rev LPF` | Reverb low-pass filter | `200 Hz` - `18000 Hz` |
+| `Rev HPF` | Reverb high-pass filter | `20 Hz` - `1000 Hz` |
+| `Ch Depth` | Chorus depth | `0.0` - `1.0` |
+| `Ch Speed` | Chorus speed | `0.05 Hz` - `5.0 Hz` |
 
 Per-channel reverb and chorus amounts stay on the performance pages and in the `SF2` menu.
+
+To protect CPU headroom, reverb and chorus are automatically bypassed (dry signal only) once active voice count reaches 16, and are restored once it drops back to 12 or fewer. This happens automatically and isn't a setting you control directly — if you hear FX cut out under a dense arrangement, that's why.
 
 ## Song
 
@@ -281,9 +293,9 @@ Song settings:
 | `Loop` | Loop enable |
 | `St M`, `St B`, `St T` | Loop start |
 | `Ln M`, `Ln B`, `Ln T` | Loop length |
-| `Save To MIDI` | Write embedded Major MIDI song metadata |
+| `Save Song CFG` | Quick-save the current song's settings without opening the `Save All` confirmation |
 
-`Save To MIDI` updates the current `.mid` file. It does not replace `Save All`.
+`Save Song CFG` writes the same per-song `.cfg` file (plus the boot-state file) that `Save All` writes, but does it immediately with no confirmation step and without requiring playback to be stopped first. Use `Save All` instead when you want the safety of a confirmation prompt and a guaranteed-stopped transport during the write.
 
 ## SF2
 
@@ -291,7 +303,7 @@ SF2 settings:
 
 | Item | Meaning |
 | --- | --- |
-| `Voices` | Max synth voices |
+| `Voices` | Max synth voices, `0`-`32` (default `16`); `0` silences the synth entirely |
 | `Channel` | Channel being edited |
 | `Mute` | Mute for that channel |
 | `Volume` | Channel volume |
@@ -299,7 +311,7 @@ SF2 settings:
 | `RevSend` | Channel reverb send |
 | `ChoSend` | Channel chorus send |
 | `Program` | Program override or file-follow mode |
-| `Trans` | Global transpose |
+| `Trans` | Global transpose, `-24` to `+24` semitones |
 
 Program behavior:
 
@@ -307,6 +319,8 @@ Program behavior:
 | --- | --- |
 | `Program File` | Follow program changes from the MIDI file |
 | `Program 000..127` | Force a manual program override |
+
+`Trans` shifts every channel except the drum channel (MIDI channel 10) — drum kits stay at their original pitch under transpose.
 
 Higher voice counts increase CPU load. If playback becomes unstable, reduce `Voices`.
 
@@ -346,7 +360,7 @@ There are also dedicated toggles for:
 
 ## CV/Gate
 
-CV/Gate assignments are fully configurable per song.
+Major MIDI exposes exactly two CV inputs, two gate inputs, two gate outputs, and two CV outputs, fully configurable per song.
 
 Input CV modes:
 
@@ -354,7 +368,7 @@ Input CV modes:
 | --- | --- |
 | `Off` | Disabled |
 | `MasterVol` | Master volume control |
-| `BPM` | Tempo control |
+| `BPM` | Tempo control, `20`-`300` BPM linear across the CV input's `0V`-`5V` range |
 | `Ch Pitch` | Channel pitch control |
 | `Ch CC` | Channel CC control |
 | `NotePitch` | Note pitch control |
@@ -367,6 +381,8 @@ Gate input modes:
 | `Sync` | External gate sync input |
 | `NoteTrig` | Trigger notes on a channel |
 
+`NoteTrig` reads its paired CV input as a pitch across a 5-octave span (from `C1` to `C6`) and fires the note at a fixed velocity.
+
 Gate output modes:
 
 | Mode | Meaning |
@@ -375,6 +391,8 @@ Gate output modes:
 | `Sync` | Clock output |
 | `Reset` | Reset pulse output |
 | `Ch Gate` | Gate output from a channel |
+
+Gate outputs pulse for about 10 ms.
 
 CV output modes:
 
@@ -386,7 +404,7 @@ CV output modes:
 
 Each CV/gate page also exposes the related channel, CC number, sync resolution, trigger style, or note priority when that mode needs it.
 
-For pitch CV outputs, `O1 Scl` / `O2 Scl` trim the 1V/oct scaling from `90.0%` to `110.0%` in `0.1%` steps. Increase the scale if each octave measures slightly flat, and decrease it if each octave measures sharp.
+For pitch CV outputs, `O1 Scl` / `O2 Scl` trim the 1V/oct scaling from `90.0%` to `110.0%` in `0.1%` steps. Increase the scale if each octave measures slightly flat, and decrease it if each octave measures sharp. Pitch CV out runs 1V/octave from `C1` (0V) up to `5V` of headroom (about 10 octaves).
 
 ## Sync
 
@@ -404,16 +422,18 @@ External sync can follow:
 | MIDI clock | Via incoming MIDI transport clock |
 | Gate sync | Via configured gate input sync pulses |
 
+If both a MIDI clock source and a gate sync input are active at once, MIDI clock takes priority.
+
 If external sync is selected and no valid clock arrives, `Play` will arm transport but the song will not move.
 
 ## Saving And Recall
 
-There are two save paths:
+There are two ways to write settings to disk, both scoped to the currently loaded song and both writing the per-song `.cfg` plus the boot-state file:
 
-| Action | What it writes |
+| Action | Behavior |
 | --- | --- |
-| `Song > Save To MIDI` | Embedded Major MIDI metadata inside the current `.mid` |
-| `Save All` | `<current-midi>.cfg` plus boot/UI state |
+| `Song > Save Song CFG` | Immediate save, no confirmation, works even while playing |
+| `Save All` (main menu) | Confirmation prompt, forces the transport to stop first, refuses to run if anything is still playing or gating |
 
 `Save All` stores:
 
@@ -426,14 +446,16 @@ There are two save paths:
 | CV/gate assignments |
 | General UI settings and last boot MIDI selection |
 
-For reliability, use `Save All` only while playback is stopped.
+For reliability, prefer `Save All` when you have time for the confirmation step; use `Save Song CFG` for a fast save between takes.
 
 ## Troubleshooting
 
 | Problem | Check |
 | --- | --- |
 | No playback when pressing `Play` | Sync switch may be set to external with no incoming clock |
-| No files in browser | Confirm files are under `0:/midi` or `0:/soundfonts` |
+| No files in browser | Confirm files are under `0:/midi` or `0:/soundfonts`, and that the folder doesn't exceed the browser's visible-entry limit |
 | Wrong instrument loads with a song | Check the song's saved SF2 and per-channel program overrides |
 | Knobs do not respond immediately | `Knobs` may be set to `Pickup` |
+| No sound at all | `Voices` may be set to `0`, which silences the synth |
 | Audio overload or glitches | Lower `Voices`, reduce dense arrangements, or use a lighter SF2 |
+| Reverb/chorus seems to disappear under dense passages | Expected: FX auto-bypasses above 16 active voices and returns at 12 or fewer |

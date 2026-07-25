@@ -85,7 +85,6 @@ class SmfPlayer
     bool ReadVarLen(TrackState& trk, uint32_t& value);
     bool SkipBytes(TrackState& trk, uint32_t count);
     bool SeekTrackHeader(uint32_t& length);
-    void LoadMajorMidiSettings();
     bool HasBpmOverride() const;
     uint32_t EffectiveTempoUsec() const;
     void UpdateSamplesPerTick();

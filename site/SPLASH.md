@@ -1,6 +1,6 @@
 # Major MIDI
 
-Major MIDI turns Daisy Patch SM into a compact Eurorack MIDI file player with a built-in SoundFont 2 synth, live MIDI performance controls, sync options, and modular CV/gate integration.
+Major MIDI turns Daisy Patch SM (STM32H750, Cortex-M7) into a compact Eurorack MIDI file player with a built-in SoundFont 2 synth, live MIDI performance controls, sync options, and modular CV/gate integration.
 
 ## Why Major MIDI
 
@@ -14,6 +14,7 @@ Major MIDI is built for a modular workflow where a playback box needs to feel li
 | Internal or external sync | Run standalone or lock to the rest of the system |
 | CV/gate integration | Patch transport, pitch, CC, clock, and gate behavior into the rack |
 | Saved song state | Recall per-song routing, loop, mix, and SF2 choices |
+| Browser remote & MIDI transfer | Load songs, mix channels, run transport, and upload `.mid` files over USB from Chrome or Edge |
 
 ## What The Site Covers
 
@@ -22,6 +23,8 @@ This site is split into a few focused pages:
 - [User Manual](user.html) for the current operating guide.
 - [Dev Resources](dev.html) for build notes, source layout, and docs workflow.
 - [Order](order.html) for hardware and ordering status.
+- [Transfer MIDI](transfer.html) to upload `.mid` files over USB from the browser.
+- [Web Remote](remote.html) to browse, load, and mix songs from the browser over USB.
 
 ## Core Workflow
 

@@ -16,7 +16,7 @@ Order Major MIDI directly here.
 
 ## What You Get
 
-Use the manual and dev pages for the rest of the project context:
+Major MIDI ships as firmware for the Daisy Patch SM (STM32H750, Cortex-M7) Eurorack module. Use the manual and dev pages for the rest of the project context:
 
 - [User Manual](user.html)
 - [Dev Resources](dev.html)
