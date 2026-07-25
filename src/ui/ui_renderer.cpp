@@ -46,7 +46,7 @@ size_t MenuPageItemCount(const AppState& state, const MediaLibrary& library)
     switch(state.menu_page)
     {
         case MenuPage::Main: return 7;
-        case MenuPage::General: return 4;
+        case MenuPage::General: return 6;
             case MenuPage::Fx: return 5;
             case MenuPage::Song: return 9;
             case MenuPage::Sf2: return 9;
@@ -354,6 +354,24 @@ void UiRenderer::Render(const AppState&     state,
                                       "%cOLED X %u",
                                       item == state.menu_page_cursor ? '>' : ' ',
                                       static_cast<unsigned>(state.oled_x_offset));
+                        break;
+                    case 4:
+                        std::snprintf(
+                            line,
+                            sizeof(line),
+                            "%cCV1 Scl %3d.%1d",
+                            item == state.menu_page_cursor ? '>' : ' ',
+                            static_cast<int>(state.cv1_pitch_scale / 10),
+                            static_cast<int>(state.cv1_pitch_scale % 10));
+                        break;
+                    case 5:
+                        std::snprintf(
+                            line,
+                            sizeof(line),
+                            "%cCV2 Scl %3d.%1d",
+                            item == state.menu_page_cursor ? '>' : ' ',
+                            static_cast<int>(state.cv2_pitch_scale / 10),
+                            static_cast<int>(state.cv2_pitch_scale % 10));
                         break;
                 }
             }
@@ -734,15 +752,6 @@ void UiRenderer::Render(const AppState&     state,
                             item == state.menu_page_cursor ? '>' : ' ',
                             NotePriorityName(state.cv_gate.cv_out[0].priority));
                         break;
-                    case CvGateMenuItem::CvOut1Scale:
-                        std::snprintf(
-                            line,
-                            sizeof(line),
-                            "%cO1 Scl %3d.%1d",
-                            item == state.menu_page_cursor ? '>' : ' ',
-                            static_cast<int>(state.cv_gate.cv_out[0].pitch_scale / 10),
-                            static_cast<int>(state.cv_gate.cv_out[0].pitch_scale % 10));
-                        break;
                     case CvGateMenuItem::Cv2Mode:
                         std::snprintf(
                             line,
@@ -800,15 +809,6 @@ void UiRenderer::Render(const AppState&     state,
                             "%cO2 Pri %s",
                             item == state.menu_page_cursor ? '>' : ' ',
                             NotePriorityName(state.cv_gate.cv_out[1].priority));
-                        break;
-                    case CvGateMenuItem::CvOut2Scale:
-                        std::snprintf(
-                            line,
-                            sizeof(line),
-                            "%cO2 Scl %3d.%1d",
-                            item == state.menu_page_cursor ? '>' : ' ',
-                            static_cast<int>(state.cv_gate.cv_out[1].pitch_scale / 10),
-                            static_cast<int>(state.cv_gate.cv_out[1].pitch_scale % 10));
                         break;
                 }
             }

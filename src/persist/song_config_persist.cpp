@@ -10,13 +10,19 @@ namespace major_midi
 namespace
 {
 static constexpr uint8_t kMagic[4] = {'M', 'M', 'S', 'C'};
-static constexpr uint8_t kVersion  = 11;
+static constexpr uint8_t kVersion  = 12;
 static constexpr size_t  kLegacyNameMax = 32;
 static constexpr size_t  kLegacyFileSize = 194;
 static constexpr size_t  kFileSizeV8 = 324;
 static constexpr size_t  kFileSizeV9 = 326;
 static constexpr size_t  kFileSizeV10 = 331;
-static constexpr size_t  kFileSize = 335;
+static constexpr size_t  kFileSizeV11 = 335;
+// v12 dropped the per-song CV1/CV2 pitch_scale fields (now global, see
+// boot_state_persist.cpp) so the layout/size reverts to the v10 shape.
+static constexpr size_t  kFileSize = kFileSizeV10;
+// Read buffer must fit the largest format ever written (v11), even though
+// the current version is smaller.
+static constexpr size_t  kFileSizeMax = kFileSizeV11;
 
 uint32_t ReadUint32BE(const uint8_t* data)
 {
@@ -114,8 +120,6 @@ void WriteConfig(uint8_t* out, const AppState& state, const char* sf2_name)
         out[offset++] = state.cv_gate.cv_out[i].channel;
         out[offset++] = state.cv_gate.cv_out[i].cc;
         out[offset++] = static_cast<uint8_t>(state.cv_gate.cv_out[i].priority);
-        WriteUint16BE(out + offset, state.cv_gate.cv_out[i].pitch_scale);
-        offset += 2;
     }
 
     out[offset++] = static_cast<uint8_t>(state.midi_routing.usb.mode);
@@ -220,16 +224,12 @@ bool ReadConfig(const uint8_t* in, AppState& state, char* sf2_name, size_t sf2_n
         state.cv_gate.cv_out[i].channel  = in[offset++];
         state.cv_gate.cv_out[i].cc       = in[offset++];
         state.cv_gate.cv_out[i].priority = static_cast<NotePriority>(in[offset++]);
-        state.cv_gate.cv_out[i].pitch_scale
-            = version >= 11 ? ReadUint16BE(in + offset) : 1000u;
-        if(version >= 11)
-            offset += 2;
+        if(version == 11)
+            offset += 2; // skip legacy per-output pitch_scale, now global (boot config)
         if(state.cv_gate.cv_out[i].mode > CvOutMode::ChannelCc
            || !ValidChannel(state.cv_gate.cv_out[i].channel)
            || !ValidCc(state.cv_gate.cv_out[i].cc)
-           || state.cv_gate.cv_out[i].priority > NotePriority::Lowest
-           || state.cv_gate.cv_out[i].pitch_scale < 900
-           || state.cv_gate.cv_out[i].pitch_scale > 1100)
+           || state.cv_gate.cv_out[i].priority > NotePriority::Lowest)
             return false;
     }
 
@@ -332,17 +332,17 @@ bool ReadConfig(const uint8_t* in, AppState& state, char* sf2_name, size_t sf2_n
 
 bool LoadSongConfig(const char* path, AppState& state, char* sf2_name, size_t sf2_name_sz)
 {
-    uint8_t data[kFileSize]{};
+    uint8_t data[kFileSizeMax]{};
     FIL&    file = SharedPersistFile();
     if(f_open(&file, path, FA_READ) != FR_OK)
         return false;
 
     UINT read = 0;
-    const FRESULT read_result  = f_read(&file, data, kFileSize, &read);
+    const FRESULT read_result  = f_read(&file, data, kFileSizeMax, &read);
     const FRESULT close_result = f_close(&file);
     if(read_result != FR_OK || close_result != FR_OK
-       || (read != kFileSize && read != kFileSizeV10 && read != kFileSizeV9
-           && read != kFileSizeV8))
+       || (read != kFileSize && read != kFileSizeV11 && read != kFileSizeV10
+           && read != kFileSizeV9 && read != kFileSizeV8))
         return false;
 
     return ReadConfig(data, state, sf2_name, sf2_name_sz);

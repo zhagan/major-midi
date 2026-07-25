@@ -35,7 +35,7 @@ size_t MenuPageItemCount(const AppState& state, const MediaLibrary& library)
     switch(state.menu_page)
     {
         case MenuPage::Main: return MainMenuItemCount();
-        case MenuPage::General: return 4;
+        case MenuPage::General: return 6;
         case MenuPage::Fx: return 5;
         case MenuPage::Song: return 9;
         case MenuPage::Sf2: return 9;
@@ -893,6 +893,20 @@ void UiController::AdjustMenuValue(int32_t delta, uint32_t now_ms)
                     state_->oled_x_offset = static_cast<uint8_t>(
                         ClampInt(static_cast<int>(state_->oled_x_offset) + delta, 0, 8));
                     break;
+                case 4:
+                    state_->cv1_pitch_scale = static_cast<uint16_t>(
+                        ClampInt(static_cast<int>(state_->cv1_pitch_scale)
+                                     + (delta > 0 ? 1 : -1),
+                                 900,
+                                 1100));
+                    break;
+                case 5:
+                    state_->cv2_pitch_scale = static_cast<uint16_t>(
+                        ClampInt(static_cast<int>(state_->cv2_pitch_scale)
+                                     + (delta > 0 ? 1 : -1),
+                                 900,
+                                 1100));
+                    break;
                 default: return;
             }
             break;
@@ -1285,13 +1299,6 @@ void UiController::AdjustMenuValue(int32_t delta, uint32_t now_ms)
                                                      ? NotePriority::Lowest
                                                      : NotePriority::Highest;
                     break;
-                case CvGateMenuItem::CvOut1Scale:
-                    cv_gate.cv_out[0].pitch_scale = static_cast<uint16_t>(
-                        ClampInt(static_cast<int>(cv_gate.cv_out[0].pitch_scale)
-                                     + (delta > 0 ? 1 : -1),
-                                 900,
-                                 1100));
-                    break;
                 case CvGateMenuItem::CvOut2Mode:
                     cv_gate.cv_out[1].mode = static_cast<CvOutMode>(
                         ClampInt(static_cast<int>(cv_gate.cv_out[1].mode) + (delta > 0 ? 1 : -1),
@@ -1314,13 +1321,6 @@ void UiController::AdjustMenuValue(int32_t delta, uint32_t now_ms)
                     cv_gate.cv_out[1].priority = cv_gate.cv_out[1].priority == NotePriority::Highest
                                                      ? NotePriority::Lowest
                                                      : NotePriority::Highest;
-                    break;
-                case CvGateMenuItem::CvOut2Scale:
-                    cv_gate.cv_out[1].pitch_scale = static_cast<uint16_t>(
-                        ClampInt(static_cast<int>(cv_gate.cv_out[1].pitch_scale)
-                                     + (delta > 0 ? 1 : -1),
-                                 900,
-                                 1100));
                     break;
                 default: return;
             }

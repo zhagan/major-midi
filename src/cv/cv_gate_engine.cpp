@@ -47,9 +47,9 @@ float MidiNoteToVoltage(int note)
     return volts;
 }
 
-float ApplyPitchScale(float voltage, const CvOutputConfig& config)
+float ApplyPitchScale(float voltage, uint16_t pitch_scale)
 {
-    const float scaled = voltage * (static_cast<float>(config.pitch_scale) / 1000.0f);
+    const float scaled = voltage * (static_cast<float>(pitch_scale) / 1000.0f);
     if(scaled < 0.0f)
         return 0.0f;
     if(scaled > kCvOutMaxVolt)
@@ -173,6 +173,7 @@ int CvGateEngine::EffectiveBpm(const AppState& state) const
 float CvGateEngine::PitchVoltageForChannel(size_t                output_index,
                                            const MixerTransport& transport,
                                            const CvOutputConfig& config,
+                                           uint16_t              pitch_scale,
                                            bool                  playing)
 {
     const int note = transport.ChannelPitchNote(config.channel, config.priority);
@@ -180,7 +181,7 @@ float CvGateEngine::PitchVoltageForChannel(size_t                output_index,
         held_pitch_note_[output_index] = static_cast<int8_t>(note);
     else if(!playing)
         held_pitch_note_[output_index] = -1;
-    return ApplyPitchScale(MidiNoteToVoltage(held_pitch_note_[output_index]), config);
+    return ApplyPitchScale(MidiNoteToVoltage(held_pitch_note_[output_index]), pitch_scale);
 }
 
 float CvGateEngine::CcVoltageForChannel(const MixerTransport& transport,
@@ -515,7 +516,12 @@ void CvGateEngine::Update(const AppState& state, MixerTransport& transport)
         {
             case CvOutMode::Off: voltage = 0.0f; break;
             case CvOutMode::ChannelPitch:
-                voltage = PitchVoltageForChannel(i, transport, state.cv_gate.cv_out[i], playing);
+                voltage = PitchVoltageForChannel(
+                    i,
+                    transport,
+                    state.cv_gate.cv_out[i],
+                    i == 0 ? state.cv1_pitch_scale : state.cv2_pitch_scale,
+                    playing);
                 break;
             case CvOutMode::ChannelCc:
                 voltage = CcVoltageForChannel(transport, state.cv_gate.cv_out[i]);

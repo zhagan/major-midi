@@ -123,12 +123,10 @@ enum class CvGateMenuItem : uint8_t
     CvOut1Channel,
     CvOut1Cc,
     CvOut1Priority,
-    CvOut1Scale,
     CvOut2Mode,
     CvOut2Channel,
     CvOut2Cc,
     CvOut2Priority,
-    CvOut2Scale,
 };
 
 enum class CvInMode : uint8_t
@@ -223,7 +221,6 @@ struct CvOutputConfig
     uint8_t      channel  = 0;
     uint8_t      cc       = 1;
     NotePriority priority = NotePriority::Highest;
-    uint16_t     pitch_scale = 1000;
 };
 
 struct CvGateConfig
@@ -325,6 +322,8 @@ struct AppState
     KnobPickupMode knob_pickup_mode      = KnobPickupMode::Pickup;
     EncoderDirection encoder_direction   = EncoderDirection::Normal;
     uint8_t      oled_x_offset           = 0;
+    uint16_t     cv1_pitch_scale         = 1028;
+    uint16_t     cv2_pitch_scale         = 1028;
     float        fx_reverb_time          = 0.85f;
     float        fx_reverb_lpf_hz        = 8000.0f;
     float        fx_reverb_hpf_hz        = 80.0f;
@@ -607,11 +606,6 @@ inline bool CvOutModeNeedsPriority(CvOutMode mode)
     return mode == CvOutMode::ChannelPitch;
 }
 
-inline bool CvOutModeNeedsScale(CvOutMode mode)
-{
-    return mode == CvOutMode::ChannelPitch;
-}
-
 inline size_t CvGateVisibleItemCount(const CvGateConfig& config)
 {
     size_t count = 0;
@@ -642,12 +636,10 @@ inline size_t CvGateVisibleItemCount(const CvGateConfig& config)
     add(CvOutModeNeedsChannel(config.cv_out[0].mode));
     add(CvOutModeNeedsCc(config.cv_out[0].mode));
     add(CvOutModeNeedsPriority(config.cv_out[0].mode));
-    add(CvOutModeNeedsScale(config.cv_out[0].mode));
     add(); // O2 Mode
     add(CvOutModeNeedsChannel(config.cv_out[1].mode));
     add(CvOutModeNeedsCc(config.cv_out[1].mode));
     add(CvOutModeNeedsPriority(config.cv_out[1].mode));
-    add(CvOutModeNeedsScale(config.cv_out[1].mode));
     return count;
 }
 
@@ -715,9 +707,6 @@ inline CvGateMenuItem CvGateVisibleItemAt(const CvGateConfig& config, size_t vis
     if(match(CvGateMenuItem::CvOut1Priority,
              CvOutModeNeedsPriority(config.cv_out[0].mode)))
         return CvGateMenuItem::CvOut1Priority;
-    if(match(CvGateMenuItem::CvOut1Scale,
-             CvOutModeNeedsScale(config.cv_out[0].mode)))
-        return CvGateMenuItem::CvOut1Scale;
     if(match(CvGateMenuItem::CvOut2Mode))
         return CvGateMenuItem::CvOut2Mode;
     if(match(CvGateMenuItem::CvOut2Channel,
@@ -728,9 +717,6 @@ inline CvGateMenuItem CvGateVisibleItemAt(const CvGateConfig& config, size_t vis
     if(match(CvGateMenuItem::CvOut2Priority,
              CvOutModeNeedsPriority(config.cv_out[1].mode)))
         return CvGateMenuItem::CvOut2Priority;
-    if(match(CvGateMenuItem::CvOut2Scale,
-             CvOutModeNeedsScale(config.cv_out[1].mode)))
-        return CvGateMenuItem::CvOut2Scale;
     return CvGateMenuItem::Cv1Mode;
 }
 
@@ -751,8 +737,7 @@ inline bool CvGateConfigEqual(const CvGateConfig& a, const CvGateConfig& b)
         if(a.cv_out[i].mode != b.cv_out[i].mode
            || a.cv_out[i].channel != b.cv_out[i].channel
            || a.cv_out[i].cc != b.cv_out[i].cc
-           || a.cv_out[i].priority != b.cv_out[i].priority
-           || a.cv_out[i].pitch_scale != b.cv_out[i].pitch_scale)
+           || a.cv_out[i].priority != b.cv_out[i].priority)
             return false;
     }
     return true;

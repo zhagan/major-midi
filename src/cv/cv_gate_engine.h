@@ -19,6 +19,7 @@ class CvGateEngine
     float PitchVoltageForChannel(size_t                output_index,
                                  const MixerTransport& transport,
                                  const CvOutputConfig& config,
+                                 uint16_t              pitch_scale,
                                  bool                  playing);
     float CcVoltageForChannel(const MixerTransport& transport,
                               const CvOutputConfig& config) const;
