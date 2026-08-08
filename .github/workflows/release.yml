@@ -60,10 +60,14 @@ jobs:
 
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: dist/*
           generate_release_notes: true
+          # any tag with a suffix (v1.0.0-rc1, v0.0.0-test) is a prerelease, so
+          # it never becomes releases/latest -- which is where the README sends
+          # users to download firmware
+          prerelease: ${{ contains(github.ref_name, '-') }}
           body: |
             ## Installing
 
