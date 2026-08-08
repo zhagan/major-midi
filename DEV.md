@@ -195,7 +195,7 @@ There is no global flat file index anymore (see `media_library.*` above) — the
 | `0x15` | Transport | action(1B): `0x00` stop, `0x01` play, `0x02` toggle | resulting `transport_playing` (1B) |
 | `0x16` | GetChannelState | channel(14b), `<16` | index(14b), volume, pan, reverb_send, chorus_send (1B each, 0-127), muted(1B), program_override(14b, `128`=none), current_program(1B) |
 | `0x17` | SetChannelState | index(14b), volume, pan, reverb_send, chorus_send, muted, program(14b, `128` clears override) | index(14b) |
-| `0x18` | GetSongState | — | bpmOverride(14b), loopEnabled(1B), loopStart(28b), loopLength(28b) |
+| `0x18` | GetSongState | — | bpmOverride(14b), loopEnabled(1B), loopStart(28b), loopLength(28b), divisions/PPQN(14b), time-signature numerator(1B), denominator(1B) |
 | `0x19` | SetSongState | bpmOverride(14b, ≤300), loopEnabled(1B), loopStart(28b), loopLength(28b, nonzero) | status only |
 | `0x1A` | SaveSongSettings | — | status only (sets `pending_save_settings`, same as `Song > Save Song CFG`) |
 | `0x1B` | GetMidiDirCount | dirPathLen(1B), dir path bytes (empty = root) | count(14b) |

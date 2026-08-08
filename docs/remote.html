@@ -146,6 +146,51 @@
         min-width: 4.8rem;
       }
 
+      body.remote-page #channel-table input[type="range"] {
+        width: clamp(5.5rem, 8vw, 8rem);
+        accent-color: var(--accent);
+      }
+
+      body.remote-page .fader-control {
+        display: grid;
+        grid-template-columns: minmax(5.5rem, 1fr) 2.2rem;
+        align-items: center;
+        gap: 0.45rem;
+      }
+
+      body.remote-page .fader-value {
+        color: var(--muted);
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+      }
+
+      body.remote-page .tick-reference {
+        opacity: 0.78;
+      }
+
+      body.remote-page .tick-reference label::after {
+        content: " · editable";
+        color: var(--accent-2);
+        font-size: 0.72rem;
+        letter-spacing: 0.04em;
+        text-transform: none;
+      }
+
+      body.remote-page .song-loop-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        margin: 12px 0;
+      }
+
+      body.remote-page .song-loop-grid h4 {
+        margin: 0 0 0.75rem;
+      }
+
+      body.remote-page .song-loop-grid .grid-2 {
+        margin-bottom: 0.75rem;
+      }
+
       body.remote-page .log {
         min-height: 120px;
         max-height: 180px;
@@ -213,6 +258,10 @@
         body.remote-page .hero {
           padding: 16px;
         }
+
+        body.remote-page .song-loop-grid {
+          grid-template-columns: 1fr;
+        }
       }
     </style>
   </head>
@@ -246,24 +295,6 @@
       </aside>
 
       <main class="main">
-        <section class="hero" id="top">
-          <div class="hero-grid">
-            <div>
-              <h2>Web Remote</h2>
-              <p>Browser control for Major MIDI: inspect status, browse media folders, load files, run transport, edit song loop settings, and adjust all 16 MIDI channels.</p>
-            </div>
-            <div class="hero-card">
-              <h3>Scope</h3>
-              <ul>
-                <li>Browse folders and load MIDI files and SoundFonts</li>
-                <li>Play and stop transport</li>
-                <li>Edit song BPM override and loop settings</li>
-                <li>Edit per-channel volume, pan, FX sends, mute, and program override</li>
-              </ul>
-            </div>
-          </div>
-        </section>
-
         <section class="section" id="connect">
           <h2>Connect</h2>
           <div class="uploader-card">
@@ -343,13 +374,41 @@
                 <option value="1">On</option>
               </select>
             </div>
-            <div class="field">
-              <label for="song-loop-start">Loop Start Tick</label>
-              <input id="song-loop-start" type="number" min="0" max="268435455" />
+          </div>
+          <div class="song-loop-grid">
+            <div class="mini-card">
+              <h4>Loop Start</h4>
+              <div class="grid-2">
+                <div class="field">
+                  <label for="song-loop-start-measure">Measure</label>
+                  <input id="song-loop-start-measure" type="number" min="1" max="9999" />
+                </div>
+                <div class="field">
+                  <label for="song-loop-start-beat">Beat</label>
+                  <input id="song-loop-start-beat" type="number" min="1" max="32" />
+                </div>
+              </div>
+              <div class="field tick-reference">
+                <label for="song-loop-start">Tick Reference</label>
+                <input id="song-loop-start" type="number" min="0" max="268435455" />
+              </div>
             </div>
-            <div class="field">
-              <label for="song-loop-length">Loop Length Tick</label>
-              <input id="song-loop-length" type="number" min="1" max="268435455" />
+            <div class="mini-card">
+              <h4>Loop Length</h4>
+              <div class="grid-2">
+                <div class="field">
+                  <label for="song-loop-length-measures">Measures</label>
+                  <input id="song-loop-length-measures" type="number" min="0" max="9999" />
+                </div>
+                <div class="field">
+                  <label for="song-loop-length-beats">Beats</label>
+                  <input id="song-loop-length-beats" type="number" min="0" max="31" />
+                </div>
+              </div>
+              <div class="field tick-reference">
+                <label for="song-loop-length">Tick Reference</label>
+                <input id="song-loop-length" type="number" min="1" max="268435455" />
+              </div>
             </div>
           </div>
           <div class="button-row">
@@ -372,7 +431,6 @@
                   <th>Mute</th>
                   <th>Program Ovr</th>
                   <th>Current</th>
-                  <th>Apply</th>
                 </tr>
               </thead>
               <tbody id="channel-table"></tbody>
@@ -431,6 +489,9 @@
       let preferredOutputPortKey = "";
       let pendingReply = null;
       let channelStates = Array.from({ length: 16 }, (_, index) => ({ index }));
+      let songTiming = { divisions: 480, numerator: 4, denominator: 4 };
+      const channelSendTimers = new Map();
+      let channelSendQueue = Promise.resolve();
 
       let midiBrowserPath = "";
       let sf2BrowserPath = "";
@@ -466,7 +527,11 @@
       const statusBpm = document.getElementById("status-bpm");
       const songBpmOverride = document.getElementById("song-bpm-override");
       const songLoopEnabled = document.getElementById("song-loop-enabled");
+      const songLoopStartMeasure = document.getElementById("song-loop-start-measure");
+      const songLoopStartBeat = document.getElementById("song-loop-start-beat");
       const songLoopStart = document.getElementById("song-loop-start");
+      const songLoopLengthMeasures = document.getElementById("song-loop-length-measures");
+      const songLoopLengthBeats = document.getElementById("song-loop-length-beats");
       const songLoopLength = document.getElementById("song-loop-length");
       const channelTable = document.getElementById("channel-table");
       const logEl = document.getElementById("log");
@@ -759,6 +824,9 @@
           loopEnabled: reply.payload[2] === 1,
           loopStart: decode28(reply.payload, 3),
           loopLength: decode28(reply.payload, 7),
+          divisions: reply.payload.length >= 15 ? decode14(reply.payload, 11) : 480,
+          numerator: reply.payload.length >= 15 ? reply.payload[13] : 4,
+          denominator: reply.payload.length >= 15 ? reply.payload[14] : 4,
         };
       }
 
@@ -786,17 +854,58 @@
           const tr = document.createElement("tr");
           tr.innerHTML = `
             <td>${state.index + 1}</td>
-            <td><input data-field="volume" data-index="${state.index}" type="number" min="0" max="127" value="${state.volume}" /></td>
-            <td><input data-field="pan" data-index="${state.index}" type="number" min="0" max="127" value="${state.pan}" /></td>
-            <td><input data-field="reverb" data-index="${state.index}" type="number" min="0" max="127" value="${state.reverb}" /></td>
-            <td><input data-field="chorus" data-index="${state.index}" type="number" min="0" max="127" value="${state.chorus}" /></td>
+            <td>${faderMarkup("volume", state)}</td>
+            <td>${faderMarkup("pan", state)}</td>
+            <td>${faderMarkup("reverb", state)}</td>
+            <td>${faderMarkup("chorus", state)}</td>
             <td><input data-field="muted" data-index="${state.index}" type="checkbox" ${state.muted ? "checked" : ""} /></td>
             <td><input data-field="programOverride" data-index="${state.index}" type="text" value="${state.programOverride === PROGRAM_FILE ? "" : state.programOverride}" placeholder="file" /></td>
             <td>${state.currentProgram}</td>
-            <td><button data-apply-channel="${state.index}" class="secondary">Apply</button></td>
           `;
           channelTable.appendChild(tr);
         }
+      }
+
+      function faderMarkup(field, state) {
+        return `<div class="fader-control">
+          <input data-field="${field}" data-index="${state.index}" type="range" min="0" max="127" value="${state[field]}" />
+          <output class="fader-value" data-value-for="${field}" data-index="${state.index}">${state[field]}</output>
+        </div>`;
+      }
+
+      function ticksPerBeat() {
+        const divisions = Math.max(1, Number(songTiming.divisions) || 480);
+        const denominator = Math.max(1, Number(songTiming.denominator) || 4);
+        return Math.max(1, Math.floor((divisions * 4) / denominator));
+      }
+
+      function syncMusicalLoopFromTicks() {
+        const beatTicks = ticksPerBeat();
+        const beatsPerMeasure = Math.max(1, Number(songTiming.numerator) || 4);
+        const measureTicks = beatTicks * beatsPerMeasure;
+        const startTick = Math.max(0, Number(songLoopStart.value) || 0);
+        const lengthTick = Math.max(1, Number(songLoopLength.value) || 1);
+        songLoopStartMeasure.value = Math.floor(startTick / measureTicks) + 1;
+        songLoopStartBeat.value = Math.floor((startTick % measureTicks) / beatTicks) + 1;
+        const totalLengthBeats = Math.floor(lengthTick / beatTicks);
+        songLoopLengthMeasures.value = Math.floor(totalLengthBeats / beatsPerMeasure);
+        songLoopLengthBeats.value = totalLengthBeats % beatsPerMeasure;
+      }
+
+      function syncStartTickFromMusicalLoop() {
+        const beatsPerMeasure = Math.max(1, Number(songTiming.numerator) || 4);
+        const measure = Math.max(1, Number(songLoopStartMeasure.value) || 1);
+        const beat = Math.min(beatsPerMeasure, Math.max(1, Number(songLoopStartBeat.value) || 1));
+        songLoopStartBeat.value = beat;
+        songLoopStart.value = ((measure - 1) * beatsPerMeasure + (beat - 1)) * ticksPerBeat();
+      }
+
+      function syncLengthTickFromMusicalLoop() {
+        const beatsPerMeasure = Math.max(1, Number(songTiming.numerator) || 4);
+        const measures = Math.max(0, Number(songLoopLengthMeasures.value) || 0);
+        const beats = Math.min(beatsPerMeasure - 1, Math.max(0, Number(songLoopLengthBeats.value) || 0));
+        songLoopLengthBeats.value = beats;
+        songLoopLength.value = Math.max(1, (measures * beatsPerMeasure + beats) * ticksPerBeat());
       }
 
       function updateStatusUI(status, songState, currentMidiPath, currentSf2Path) {
@@ -807,8 +916,14 @@
         statusBpm.textContent = `BPM: ${status.bpm || "-"}`;
         songBpmOverride.value = songState.bpmOverride;
         songLoopEnabled.value = songState.loopEnabled ? "1" : "0";
+        songTiming = {
+          divisions: songState.divisions || 480,
+          numerator: songState.numerator || 4,
+          denominator: songState.denominator || 4,
+        };
         songLoopStart.value = songState.loopStart;
         songLoopLength.value = songState.loopLength;
+        syncMusicalLoopFromTicks();
       }
 
       async function refreshRemote() {
@@ -857,7 +972,7 @@
       }
 
       function readChannelRow(index) {
-        const root = channelTable.querySelector(`button[data-apply-channel="${index}"]`)?.closest("tr");
+        const root = channelTable.querySelector(`[data-field="volume"][data-index="${index}"]`)?.closest("tr");
         if (!root) throw new Error(`Missing channel row ${index + 1}.`);
         const get = (field) => root.querySelector(`[data-field="${field}"][data-index="${index}"]`);
         const programText = get("programOverride").value.trim();
@@ -882,8 +997,18 @@
       async function applyChannel(index) {
         const state = readChannelRow(index);
         await sendAndWait(CMD.setChannelState, [...encode14(index), state.volume, state.pan, state.reverb, state.chorus, state.muted, ...encode14(state.programOverride)]);
-        log(`Channel ${index + 1} applied.`);
-        window.setTimeout(() => refreshRemote().catch((error) => log(`Refresh failed: ${error.message}`)), 150);
+        channelStates[index] = { ...channelStates[index], ...state, muted: state.muted === 1 };
+        log(`Channel ${index + 1} updated.`);
+      }
+
+      function queueChannelUpdate(index, delay = 100) {
+        window.clearTimeout(channelSendTimers.get(index));
+        channelSendTimers.set(index, window.setTimeout(() => {
+          channelSendTimers.delete(index);
+          channelSendQueue = channelSendQueue
+            .then(() => applyChannel(index))
+            .catch((error) => log(`Channel update failed: ${error.message}`));
+        }, delay));
       }
 
       enableButton.addEventListener("click", enableMidi);
@@ -899,11 +1024,26 @@
       toggleButton.addEventListener("click", () => setTransport(0x02, "Toggle").catch((error) => log(`Transport failed: ${error.message}`)));
       applySongButton.addEventListener("click", () => applySongSettings().catch((error) => log(`Song apply failed: ${error.message}`)));
       saveSongButton.addEventListener("click", () => saveSongSettings().catch((error) => log(`Song save failed: ${error.message}`)));
-      channelTable.addEventListener("click", (event) => {
-        const button = event.target.closest("button[data-apply-channel]");
-        if (!button) return;
-        const index = Number(button.getAttribute("data-apply-channel"));
-        applyChannel(index).catch((error) => log(`Channel apply failed: ${error.message}`));
+      songLoopStartMeasure.addEventListener("input", syncStartTickFromMusicalLoop);
+      songLoopStartBeat.addEventListener("input", syncStartTickFromMusicalLoop);
+      songLoopLengthMeasures.addEventListener("input", syncLengthTickFromMusicalLoop);
+      songLoopLengthBeats.addEventListener("input", syncLengthTickFromMusicalLoop);
+      songLoopStart.addEventListener("input", syncMusicalLoopFromTicks);
+      songLoopLength.addEventListener("input", syncMusicalLoopFromTicks);
+      channelTable.addEventListener("input", (event) => {
+        const input = event.target.closest("input[data-field][data-index]");
+        if (!input) return;
+        const index = Number(input.dataset.index);
+        if (input.type === "range") {
+          const output = channelTable.querySelector(`[data-value-for="${input.dataset.field}"][data-index="${index}"]`);
+          if (output) output.value = input.value;
+          queueChannelUpdate(index);
+        }
+      });
+      channelTable.addEventListener("change", (event) => {
+        const input = event.target.closest("input[data-field][data-index]");
+        if (!input || input.type === "range") return;
+        queueChannelUpdate(Number(input.dataset.index), 0);
       });
     </script>
   </body>
