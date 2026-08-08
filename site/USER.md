@@ -15,6 +15,8 @@ Major MIDI is Daisy Patch SM firmware (STM32H750, Cortex-M7) for playing Standar
 
 If the sync switch is set to external, playback will wait for external clock instead of free-running.
 
+Prefer to read offline? Download this manual as a PDF: [user_manual.pdf](user_manual.pdf).
+
 ## SD Card Layout
 
 Major MIDI scans these folders recursively:
@@ -52,6 +54,13 @@ On boot, Major MIDI:
 If both a MIDI file and an SF2 are available, the unit loads them automatically at startup.
 
 ## Front Panel
+
+<figure class="image-card image-card-wide">
+  <div class="image-frame panel-frame">
+    <img src="./assets/images/panel-major-midi.png" alt="Major MIDI front panel layout" loading="lazy" />
+  </div>
+  <figcaption>Front panel: display, transport and bank buttons, four performance knobs, and the CV, gate, and MIDI patch points along the bottom edge.</figcaption>
+</figure>
 
 | Control | Role |
 | --- | --- |
