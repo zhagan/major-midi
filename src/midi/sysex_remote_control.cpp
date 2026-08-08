@@ -279,6 +279,9 @@ void SysExRemoteControl::HandleGetSongState(daisy::MidiUsbHandler& usb_midi)
     payload[pos++] = state_->song_loop_enabled ? 1 : 0;
     pos += Write28(payload + pos, state_->loop_start_tick);
     pos += Write28(payload + pos, state_->loop_length_ticks);
+    pos += Write14(payload + pos, state_->song_divisions);
+    payload[pos++] = static_cast<uint8_t>(state_->time_sig_num & 0x7F);
+    payload[pos++] = static_cast<uint8_t>(state_->time_sig_den & 0x7F);
     SendReply(usb_midi, Command::GetSongState, Status::Ok, payload, pos);
 }
 
