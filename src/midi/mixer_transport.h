@@ -115,6 +115,7 @@ class MixerTransport
     uint64_t           phase_start_ticks_  = 0;
     float              file_bpm_          = 120.0f;
     int                applied_bpm_       = -1;
+    uint64_t           bpm_ramp_last_sample_ = 0;
     volatile uint8_t   channel_activity_[16]{};
     volatile uint8_t   master_volume_max_ = 127;
     volatile uint8_t   expression_max_    = 127;
