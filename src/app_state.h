@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <cstring>
 
+#include "media_library.h"
+
 namespace major_midi
 {
 
@@ -296,8 +298,8 @@ struct AppState
     bool         instrument_focus_active = false;
     uint8_t      instrument_focus_cursor = 0;
     bool         instrument_focus_editing = false;
-    size_t       selected_midi_index     = 0;
-    size_t       selected_sf2_index      = 0;
+    char         selected_midi_path[MediaLibrary::kPathMax]{};
+    char         selected_sf2_path[MediaLibrary::kPathMax]{};
     size_t       menu_root_cursor        = 0;
     size_t       menu_page_cursor        = 0;
     bool         menu_editing            = false;

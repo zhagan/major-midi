@@ -144,6 +144,36 @@
         padding: 0 4px 28px;
       }
 
+      body.remote-page .browser-path {
+        margin: 0 0 8px;
+        opacity: 0.75;
+      }
+
+      body.remote-page .browser-list {
+        max-height: 220px;
+        overflow-y: auto;
+        margin-top: 10px;
+      }
+
+      body.remote-page .browser-item {
+        cursor: pointer;
+        padding: 0.35rem 0.5rem;
+        border-radius: 8px;
+      }
+
+      body.remote-page .browser-item:hover {
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      body.remote-page .browser-item.dir {
+        opacity: 0.85;
+      }
+
+      body.remote-page .browser-item.selected {
+        background: rgba(120, 200, 120, 0.22);
+        font-weight: 600;
+      }
+
       @media (max-width: 1180px) {
         body.remote-page .main {
           grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -208,12 +238,12 @@
           <div class="hero-grid">
             <div>
               <h2>Web Remote</h2>
-              <p>Browser control for Major MIDI: inspect status, browse media, load files, run transport, edit song loop settings, and adjust all 16 MIDI channels.</p>
+              <p>Browser control for Major MIDI: inspect status, browse media folders, load files, run transport, edit song loop settings, and adjust all 16 MIDI channels.</p>
             </div>
             <div class="hero-card">
               <h3>Scope</h3>
               <ul>
-                <li>Load MIDI files and SoundFonts</li>
+                <li>Browse folders and load MIDI files and SoundFonts</li>
                 <li>Play and stop transport</li>
                 <li>Edit song BPM override and loop settings</li>
                 <li>Edit per-channel volume, pan, FX sends, mute, and program override</li>
@@ -268,21 +298,21 @@
           <div class="transfer-grid">
             <div class="mini-card">
               <h4>MIDI Files</h4>
-              <div class="field">
-                <select id="midi-list"></select>
-              </div>
+              <p id="midi-path" class="fine-print browser-path">/</p>
               <div class="button-row">
-                <button id="load-midi">Load MIDI</button>
+                <button id="midi-up" class="secondary">Up</button>
+                <button id="load-midi">Load Selected</button>
               </div>
+              <ol id="midi-browser" class="queue browser-list"></ol>
             </div>
             <div class="mini-card">
               <h4>SoundFonts</h4>
-              <div class="field">
-                <select id="sf2-list"></select>
-              </div>
+              <p id="sf2-path" class="fine-print browser-path">/</p>
               <div class="button-row">
-                <button id="load-sf2">Load SF2</button>
+                <button id="sf2-up" class="secondary">Up</button>
+                <button id="load-sf2">Load Selected</button>
               </div>
+              <ol id="sf2-browser" class="queue browser-list"></ol>
             </div>
           </div>
         </section>
@@ -360,8 +390,8 @@
       const MAGIC = [0x4d, 0x4d];
       const CMD = {
         getStatus: 0x10,
-        getMidiEntry: 0x11,
-        getSf2Entry: 0x12,
+        getSelectedMidiPath: 0x11,
+        getSelectedSf2Path: 0x12,
         loadMidi: 0x13,
         loadSf2: 0x14,
         transport: 0x15,
@@ -370,6 +400,10 @@
         getSongState: 0x18,
         setSongState: 0x19,
         saveSongSettings: 0x1a,
+        getMidiDirCount: 0x1b,
+        getMidiDirEntry: 0x1c,
+        getSf2DirCount: 0x1d,
+        getSf2DirEntry: 0x1e,
       };
       const STATUS_TEXT = {
         0x00: "OK",
@@ -384,9 +418,14 @@
       let preferredInputPortKey = "";
       let preferredOutputPortKey = "";
       let pendingReply = null;
-      let midiEntries = [];
-      let sf2Entries = [];
       let channelStates = Array.from({ length: 16 }, (_, index) => ({ index }));
+
+      let midiBrowserPath = "";
+      let sf2BrowserPath = "";
+      let midiBrowserEntries = [];
+      let sf2BrowserEntries = [];
+      let selectedMidiPath = "";
+      let selectedSf2Path = "";
 
       const inputSelect = document.getElementById("midi-input");
       const outputSelect = document.getElementById("midi-output");
@@ -396,13 +435,17 @@
       const refreshStatusButton = document.getElementById("refresh-status");
       const loadMidiButton = document.getElementById("load-midi");
       const loadSf2Button = document.getElementById("load-sf2");
+      const midiUpButton = document.getElementById("midi-up");
+      const sf2UpButton = document.getElementById("sf2-up");
       const playButton = document.getElementById("play-button");
       const stopButton = document.getElementById("stop-button");
       const toggleButton = document.getElementById("toggle-button");
       const applySongButton = document.getElementById("apply-song");
       const saveSongButton = document.getElementById("save-song");
-      const midiList = document.getElementById("midi-list");
-      const sf2List = document.getElementById("sf2-list");
+      const midiBrowserList = document.getElementById("midi-browser");
+      const sf2BrowserList = document.getElementById("sf2-browser");
+      const midiPathLabel = document.getElementById("midi-path");
+      const sf2PathLabel = document.getElementById("sf2-path");
       const connectionStatus = document.getElementById("connection-status");
       const statusTransport = document.getElementById("status-transport");
       const statusPosition = document.getElementById("status-position");
@@ -432,8 +475,9 @@
         return [value & 0x7f, (value >> 7) & 0x7f];
       }
 
-      function encode28(value) {
-        return [value & 0x7f, (value >> 7) & 0x7f, (value >> 14) & 0x7f, (value >> 21) & 0x7f];
+      function encodeString(value) {
+        const bytes = Array.from(new TextEncoder().encode(value || ""));
+        return [bytes.length & 0x7f, ...bytes];
       }
 
       function decode14(data, offset) {
@@ -586,46 +630,114 @@
         });
       }
 
-      function fillList(select, entries, emptyText) {
-        select.innerHTML = "";
-        if (!entries.length) {
-          const option = document.createElement("option");
-          option.value = "";
-          option.textContent = emptyText;
-          select.appendChild(option);
-          return;
-        }
-        for (const entry of entries) {
-          const option = document.createElement("option");
-          option.value = String(entry.index);
-          option.textContent = entry.name;
-          select.appendChild(option);
-        }
-      }
-
-      async function fetchEntries(command, count) {
+      async function fetchDirEntries(countCmd, entryCmd, dirPath) {
+        const countReply = await sendAndWait(countCmd, encodeString(dirPath));
+        const count = decode14(countReply.payload, 0);
         const entries = [];
-        for (let index = 0; index < count; index++) {
-          const reply = await sendAndWait(command, encode14(index));
-          const entryIndex = decode14(reply.payload, 0);
-          const nameLength = reply.payload[2];
-          const name = decodeText(reply.payload.slice(3, 3 + nameLength));
-          entries.push({ index: entryIndex, name });
+        for (let i = 0; i < count; i++) {
+          const reply = await sendAndWait(entryCmd, [...encodeString(dirPath), ...encode14(i)]);
+          const isDir = reply.payload[2] === 1;
+          const nameLen = reply.payload[3];
+          const name = decodeText(reply.payload.slice(4, 4 + nameLen));
+          entries.push({ isDir, name });
         }
         return entries;
       }
 
+      function renderBrowser(kind) {
+        const isMidi = kind === "midi";
+        const path = isMidi ? midiBrowserPath : sf2BrowserPath;
+        const entries = isMidi ? midiBrowserEntries : sf2BrowserEntries;
+        const listEl = isMidi ? midiBrowserList : sf2BrowserList;
+        const pathEl = isMidi ? midiPathLabel : sf2PathLabel;
+        const currentSelection = isMidi ? selectedMidiPath : selectedSf2Path;
+
+        pathEl.textContent = "/" + path;
+        listEl.innerHTML = "";
+
+        for (const entry of entries) {
+          const li = document.createElement("li");
+          const fullPath = path ? `${path}/${entry.name}` : entry.name;
+          li.textContent = entry.isDir ? `\u{1F4C1} ${entry.name}` : entry.name;
+          li.className = entry.isDir ? "browser-item dir" : "browser-item";
+          if (!entry.isDir && fullPath === currentSelection) li.classList.add("selected");
+          li.addEventListener("click", () => {
+            if (entry.isDir) {
+              if (isMidi) {
+                midiBrowserPath = fullPath;
+                refreshMidiBrowser().catch((error) => log(`Browse failed: ${error.message}`));
+              } else {
+                sf2BrowserPath = fullPath;
+                refreshSf2Browser().catch((error) => log(`Browse failed: ${error.message}`));
+              }
+            } else {
+              if (isMidi) selectedMidiPath = fullPath;
+              else selectedSf2Path = fullPath;
+              renderBrowser(kind);
+            }
+          });
+          listEl.appendChild(li);
+        }
+      }
+
+      async function refreshMidiBrowser() {
+        midiBrowserEntries = await fetchDirEntries(CMD.getMidiDirCount, CMD.getMidiDirEntry, midiBrowserPath);
+        renderBrowser("midi");
+      }
+
+      async function refreshSf2Browser() {
+        sf2BrowserEntries = await fetchDirEntries(CMD.getSf2DirCount, CMD.getSf2DirEntry, sf2BrowserPath);
+        renderBrowser("sf2");
+      }
+
+      function goUp(kind) {
+        const isMidi = kind === "midi";
+        const path = isMidi ? midiBrowserPath : sf2BrowserPath;
+        if (!path) return;
+        const slash = path.lastIndexOf("/");
+        const parent = slash >= 0 ? path.slice(0, slash) : "";
+        if (isMidi) {
+          midiBrowserPath = parent;
+          refreshMidiBrowser().catch((error) => log(`Browse failed: ${error.message}`));
+        } else {
+          sf2BrowserPath = parent;
+          refreshSf2Browser().catch((error) => log(`Browse failed: ${error.message}`));
+        }
+      }
+
+      async function loadSelectedMidi() {
+        if (!selectedMidiPath) throw new Error("Select a MIDI file first.");
+        await sendAndWait(CMD.loadMidi, encodeString(selectedMidiPath));
+        log("MIDI load requested.");
+        window.setTimeout(() => refreshRemote().catch((error) => log(`Refresh failed: ${error.message}`)), 400);
+      }
+
+      async function loadSelectedSf2() {
+        if (!selectedSf2Path) throw new Error("Select a SoundFont first.");
+        await sendAndWait(CMD.loadSf2, encodeString(selectedSf2Path));
+        log("SF2 load requested.");
+        window.setTimeout(() => refreshRemote().catch((error) => log(`Refresh failed: ${error.message}`)), 400);
+      }
+
       async function fetchStatus() {
         const reply = await sendAndWait(CMD.getStatus);
-        const midiCount = decode14(reply.payload, 0);
-        const sf2Count = decode14(reply.payload, 2);
-        const selectedMidiIndex = decode14(reply.payload, 4);
-        const selectedSf2Index = decode14(reply.payload, 6);
-        const playing = reply.payload[8] === 1;
-        const bpm = decode14(reply.payload, 9);
-        const measure = decode14(reply.payload, 11);
-        const beat = reply.payload[13];
-        return { midiCount, sf2Count, selectedMidiIndex, selectedSf2Index, playing, bpm, measure, beat };
+        const playing = reply.payload[0] === 1;
+        const bpm = decode14(reply.payload, 1);
+        const measure = decode14(reply.payload, 3);
+        const beat = reply.payload[5];
+        return { playing, bpm, measure, beat };
+      }
+
+      async function fetchSelectedMidiPath() {
+        const reply = await sendAndWait(CMD.getSelectedMidiPath);
+        const len = reply.payload[0];
+        return decodeText(reply.payload.slice(1, 1 + len));
+      }
+
+      async function fetchSelectedSf2Path() {
+        const reply = await sendAndWait(CMD.getSelectedSf2Path);
+        const len = reply.payload[0];
+        return decodeText(reply.payload.slice(1, 1 + len));
       }
 
       async function fetchSongState() {
@@ -675,41 +787,31 @@
         }
       }
 
-      function updateStatusUI(status, songState) {
-        const currentMidi = midiEntries.find((entry) => entry.index === status.selectedMidiIndex);
-        const currentSf2 = sf2Entries.find((entry) => entry.index === status.selectedSf2Index);
+      function updateStatusUI(status, songState, currentMidiPath, currentSf2Path) {
         statusTransport.textContent = status.playing ? "Playing" : "Stopped";
         statusPosition.textContent = `Measure ${status.measure || "-"}, Beat ${status.beat || "-"}`;
-        statusMidi.textContent = `MIDI: ${currentMidi ? currentMidi.name : "none"}`;
-        statusSf2.textContent = `SF2: ${currentSf2 ? currentSf2.name : "none"}`;
+        statusMidi.textContent = `MIDI: ${currentMidiPath || "none"}`;
+        statusSf2.textContent = `SF2: ${currentSf2Path || "none"}`;
         statusBpm.textContent = `BPM: ${status.bpm || "-"}`;
         songBpmOverride.value = songState.bpmOverride;
         songLoopEnabled.value = songState.loopEnabled ? "1" : "0";
         songLoopStart.value = songState.loopStart;
         songLoopLength.value = songState.loopLength;
-        midiList.value = midiEntries.some((entry) => entry.index === status.selectedMidiIndex) ? String(status.selectedMidiIndex) : "";
-        sf2List.value = sf2Entries.some((entry) => entry.index === status.selectedSf2Index) ? String(status.selectedSf2Index) : "";
       }
 
       async function refreshRemote() {
         const status = await fetchStatus();
-        midiEntries = await fetchEntries(CMD.getMidiEntry, status.midiCount);
-        sf2Entries = await fetchEntries(CMD.getSf2Entry, status.sf2Count);
-        fillList(midiList, midiEntries, "No MIDI files");
-        fillList(sf2List, sf2Entries, "No SoundFonts");
+        const currentMidiPath = await fetchSelectedMidiPath();
+        const currentSf2Path = await fetchSelectedSf2Path();
+        selectedMidiPath = currentMidiPath;
+        selectedSf2Path = currentSf2Path;
+        await refreshMidiBrowser();
+        await refreshSf2Browser();
         const songState = await fetchSongState();
         await fetchChannelStates();
         renderMixer();
-        updateStatusUI(status, songState);
-        log(`Remote refreshed: midi=${status.midiCount}, sf2=${status.sf2Count}, playing=${status.playing ? "yes" : "no"}.`);
-      }
-
-      async function loadSelection(command, select, label) {
-        const value = Number(select.value);
-        if (!Number.isInteger(value)) throw new Error(`Select a ${label} first.`);
-        await sendAndWait(command, encode14(value));
-        log(`${label} load requested.`);
-        window.setTimeout(() => refreshRemote().catch((error) => log(`Refresh failed: ${error.message}`)), 400);
+        updateStatusUI(status, songState, currentMidiPath, currentSf2Path);
+        log(`Remote refreshed: midi=${currentMidiPath || "none"}, sf2=${currentSf2Path || "none"}, playing=${status.playing ? "yes" : "no"}.`);
       }
 
       async function setTransport(action, label) {
@@ -776,8 +878,10 @@
       refreshPortsButton.addEventListener("click", refreshPorts);
       refreshAllButton.addEventListener("click", () => refreshRemote().catch((error) => log(`Refresh failed: ${error.message}`)));
       refreshStatusButton.addEventListener("click", () => refreshRemote().catch((error) => log(`Refresh failed: ${error.message}`)));
-      loadMidiButton.addEventListener("click", () => loadSelection(CMD.loadMidi, midiList, "MIDI").catch((error) => log(`Load failed: ${error.message}`)));
-      loadSf2Button.addEventListener("click", () => loadSelection(CMD.loadSf2, sf2List, "SF2").catch((error) => log(`Load failed: ${error.message}`)));
+      midiUpButton.addEventListener("click", () => goUp("midi"));
+      sf2UpButton.addEventListener("click", () => goUp("sf2"));
+      loadMidiButton.addEventListener("click", () => loadSelectedMidi().catch((error) => log(`Load failed: ${error.message}`)));
+      loadSf2Button.addEventListener("click", () => loadSelectedSf2().catch((error) => log(`Load failed: ${error.message}`)));
       playButton.addEventListener("click", () => setTransport(0x01, "Play").catch((error) => log(`Transport failed: ${error.message}`)));
       stopButton.addEventListener("click", () => setTransport(0x00, "Stop").catch((error) => log(`Transport failed: ${error.message}`)));
       toggleButton.addEventListener("click", () => setTransport(0x02, "Toggle").catch((error) => log(`Transport failed: ${error.message}`)));

@@ -7,6 +7,7 @@
 #include "cv_gate_engine.h"
 #include "cv_gate_persist.h"
 #include "daisy_patch_sm.h"
+#include "dev/sdram.h"
 #include "hid/midi.h"
 #include "media_library.h"
 #include "midi_routing_persist.h"
@@ -47,7 +48,7 @@ namespace
 DaisyPatchSM      hw;
 SmfPlayer         smf_player;
 MixerTransport    transport;
-MediaLibrary      media_library;
+MediaLibrary      DSY_SDRAM_BSS media_library;
 UiHardwareInput   ui_input;
 UiEventTranslator ui_events;
 UiController      ui_controller;
@@ -449,19 +450,16 @@ bool SaveSelectedSongConfig()
 {
     char        midi_path[MediaLibrary::kPathMax + 16]{};
     char        song_cfg_path[MediaLibrary::kPathMax + 24]{};
-    const char* current_sf2_name
-        = media_library.SoundFontName(app_state.selected_sf2_index);
+    const char* current_sf2_name = app_state.selected_sf2_path;
     media_library.BuildMidiPath(
-        app_state.selected_midi_index, midi_path, sizeof(midi_path));
+        app_state.selected_midi_path, midi_path, sizeof(midi_path));
     BuildSongConfigPath(midi_path, song_cfg_path, sizeof(song_cfg_path));
     if(song_cfg_path[0] == '\0')
         return false;
 
     const bool ok = SaveSongConfig(song_cfg_path, app_state, current_sf2_name);
     if(ok)
-        SaveBootState(
-            app_state,
-            media_library.MidiName(app_state.selected_midi_index));
+        SaveBootState(app_state, app_state.selected_midi_path);
     return ok;
 }
 
@@ -791,15 +789,34 @@ void CompleteMidiUpload(bool success, void*)
     app_state.menu_root_cursor  = 0;
     app_state.menu_editing      = false;
 
-    if(media_library.MidiCount() > 0 && app_state.selected_midi_index >= media_library.MidiCount())
-        app_state.selected_midi_index = 0;
-    if(media_library.SoundFontCount() > 0
-       && app_state.selected_sf2_index >= media_library.SoundFontCount())
-        app_state.selected_sf2_index = 0;
+    if(app_state.selected_midi_path[0] == '\0'
+       || !media_library.MidiFileExists(app_state.selected_midi_path))
+    {
+        char first_path[MediaLibrary::kPathMax]{};
+        if(media_library.FindFirstMidiFile(first_path, sizeof(first_path)))
+            std::snprintf(app_state.selected_midi_path,
+                         sizeof(app_state.selected_midi_path),
+                         "%s",
+                         first_path);
+        else
+            app_state.selected_midi_path[0] = '\0';
+    }
+    if(app_state.selected_sf2_path[0] == '\0'
+       || !media_library.SoundFontFileExists(app_state.selected_sf2_path))
+    {
+        char first_path[MediaLibrary::kPathMax]{};
+        if(media_library.FindFirstSoundFont(first_path, sizeof(first_path)))
+            std::snprintf(app_state.selected_sf2_path,
+                         sizeof(app_state.selected_sf2_path),
+                         "%s",
+                         first_path);
+        else
+            app_state.selected_sf2_path[0] = '\0';
+    }
 
-    if(media_library.SoundFontCount() > 0)
+    if(app_state.selected_sf2_path[0] != '\0')
         app_state.pending_sf2_load = true;
-    if(media_library.MidiCount() > 0)
+    if(app_state.selected_midi_path[0] != '\0')
         app_state.pending_midi_load = true;
 
     SetOverlay(app_state, success ? "USB MIDI Done" : "USB MIDI Aborted", System::GetNow(), 1200);
@@ -1237,12 +1254,12 @@ bool LoadSelectedMedia(bool reload_midi, bool reload_sf2, uint32_t now_ms)
     if(reload_midi)
     {
         media_library.BuildMidiPath(
-            app_state.selected_midi_index, midi_path, sizeof(midi_path));
+            app_state.selected_midi_path, midi_path, sizeof(midi_path));
         BuildSongConfigPath(midi_path, song_cfg_path, sizeof(song_cfg_path));
     }
     if(reload_sf2)
         media_library.BuildSoundFontPath(
-            app_state.selected_sf2_index, sf2_path, sizeof(sf2_path));
+            app_state.selected_sf2_path, sf2_path, sizeof(sf2_path));
 
     if(reload_midi && song_cfg_path[0] != '\0')
     {
@@ -1250,22 +1267,31 @@ bool LoadSelectedMedia(bool reload_midi, bool reload_sf2, uint32_t now_ms)
         if(LoadSongConfig(
                song_cfg_path, cfg_state, cfg_sf2_name, sizeof(cfg_sf2_name)))
         {
-            const size_t sf2_count = media_library.SoundFontCount();
-            if(sf2_count > 0)
+            char desired_path[MediaLibrary::kPathMax]{};
+            bool have_desired = false;
+            if(cfg_sf2_name[0] != '\0' && media_library.SoundFontFileExists(cfg_sf2_name))
             {
-                size_t desired_index
-                    = media_library.FindSoundFontByName(cfg_sf2_name);
-                if(desired_index >= sf2_count)
-                    desired_index = 0;
-                if(desired_index != app_state.selected_sf2_index)
-                {
-                    app_state.selected_sf2_index = desired_index;
-                    reload_sf2                   = true;
-                    media_library.BuildSoundFontPath(
-                        app_state.selected_sf2_index,
-                        sf2_path,
-                        sizeof(sf2_path));
-                }
+                std::snprintf(desired_path, sizeof(desired_path), "%s", cfg_sf2_name);
+                have_desired = true;
+            }
+            else
+            {
+                have_desired = media_library.FindFirstSoundFont(
+                    desired_path, sizeof(desired_path));
+            }
+            if(have_desired
+               && std::strncmp(desired_path,
+                              app_state.selected_sf2_path,
+                              MediaLibrary::kPathMax)
+                      != 0)
+            {
+                std::snprintf(app_state.selected_sf2_path,
+                             sizeof(app_state.selected_sf2_path),
+                             "%s",
+                             desired_path);
+                reload_sf2 = true;
+                media_library.BuildSoundFontPath(
+                    app_state.selected_sf2_path, sf2_path, sizeof(sf2_path));
             }
         }
     }
@@ -1311,9 +1337,7 @@ bool LoadSelectedMedia(bool reload_midi, bool reload_sf2, uint32_t now_ms)
         midi_ok = midi_path[0] != '\0' && smf_player.Open(midi_path);
         if(midi_ok)
         {
-            SaveBootState(
-                app_state,
-                media_library.MidiName(app_state.selected_midi_index));
+            SaveBootState(app_state, app_state.selected_midi_path);
             app_state.bpm = TempoUsecToBpm(smf_player.TempoUsecPerQuarter());
             transport.SetFileBpm(static_cast<float>(app_state.bpm));
             SyncSongStateFromPlayer();
@@ -1354,8 +1378,7 @@ bool SaveAllSettings(uint32_t now_ms)
     char        midi_path[MediaLibrary::kPathMax + 16]{};
     char        sf2_path[MediaLibrary::kPathMax + 16]{};
     char        song_cfg_path[MediaLibrary::kPathMax + 24]{};
-    const char* current_sf2_name
-        = media_library.SoundFontName(app_state.selected_sf2_index);
+    const char*         current_sf2_name = app_state.selected_sf2_path;
     const bool          had_audio        = audio_started;
     PersistWriteStage   song_stage       = PersistWriteStage::None;
     int                 song_result_code = -1;
@@ -1369,9 +1392,9 @@ bool SaveAllSettings(uint32_t now_ms)
     };
 
     media_library.BuildMidiPath(
-        app_state.selected_midi_index, midi_path, sizeof(midi_path));
+        app_state.selected_midi_path, midi_path, sizeof(midi_path));
     media_library.BuildSoundFontPath(
-        app_state.selected_sf2_index, sf2_path, sizeof(sf2_path));
+        app_state.selected_sf2_path, sf2_path, sizeof(sf2_path));
     BuildSongConfigPath(midi_path, song_cfg_path, sizeof(song_cfg_path));
 
     show_save_stage("Save Prep");
@@ -1388,8 +1411,7 @@ bool SaveAllSettings(uint32_t now_ms)
                                            &song_result_code,
                                            SaveProgressOverlay,
                                            &song_progress);
-    SaveBootState(app_state,
-                  media_library.MidiName(app_state.selected_midi_index));
+    SaveBootState(app_state, app_state.selected_midi_path);
     if(!song_ok)
     {
         char text[32];
@@ -1478,21 +1500,36 @@ int main(void)
                          ClockSync::PulseMode::PULSE_PER_16TH);
     gate_clock_sync.SetUseExternalClock(true);
 
-    if(media_library.MidiCount() > 0)
+    if(boot_midi_name[0] != '\0' && media_library.MidiFileExists(boot_midi_name))
     {
-        size_t boot_midi_index = media_library.MidiCount();
-        if(boot_midi_name[0] != '\0')
-            boot_midi_index = media_library.FindMidiByName(boot_midi_name);
-        app_state.selected_midi_index
-            = boot_midi_index < media_library.MidiCount() ? boot_midi_index : 0;
+        std::snprintf(app_state.selected_midi_path,
+                     sizeof(app_state.selected_midi_path),
+                     "%s",
+                     boot_midi_name);
     }
-    if(media_library.SoundFontCount() > 0)
-        app_state.selected_sf2_index = 0;
+    else
+    {
+        char first_path[MediaLibrary::kPathMax]{};
+        if(media_library.FindFirstMidiFile(first_path, sizeof(first_path)))
+            std::snprintf(app_state.selected_midi_path,
+                         sizeof(app_state.selected_midi_path),
+                         "%s",
+                         first_path);
+    }
+    {
+        char first_sf2_path[MediaLibrary::kPathMax]{};
+        if(media_library.FindFirstSoundFont(first_sf2_path, sizeof(first_sf2_path)))
+            std::snprintf(app_state.selected_sf2_path,
+                         sizeof(app_state.selected_sf2_path),
+                         "%s",
+                         first_sf2_path);
+    }
 
     if(sd_ok)
     {
         LoadSelectedMedia(true, true, System::GetNow());
-        if(media_library.MidiCount() > 0 && media_library.SoundFontCount() > 0)
+        if(app_state.selected_midi_path[0] != '\0'
+           && app_state.selected_sf2_path[0] != '\0')
             SetOverlay(app_state, "Ready", System::GetNow());
     }
 

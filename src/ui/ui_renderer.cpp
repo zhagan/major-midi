@@ -206,12 +206,8 @@ void UiRenderer::Render(const AppState&     state,
     char midi_short[10];
     char sf2_short[10];
 
-    CopyTrunc(library.MidiName(state.selected_midi_index),
-              midi_name,
-              sizeof(midi_name));
-    CopyTrunc(library.SoundFontName(state.selected_sf2_index),
-              sf2_name,
-              sizeof(sf2_name));
+    CopyTrunc(state.selected_midi_path, midi_name, sizeof(midi_name));
+    CopyTrunc(state.selected_sf2_path, sf2_name, sizeof(sf2_name));
     CopyTrunc(
         midi_name[0] ? midi_name : "None", midi_short, sizeof(midi_short));
     CopyTrunc(sf2_name[0] ? sf2_name : "None", sf2_short, sizeof(sf2_short));

@@ -110,7 +110,6 @@ bool SmfPlayer::Open(const char* path)
     playing_ = false;
     open_    = true;
 
-    LoadMajorMidiSettings();
     BuildTempoMap();
     UpdateSamplesPerTick();
     return true;
@@ -1090,11 +1089,6 @@ void SmfPlayer::BuildTempoMap()
         fileTempoUsec_ = tempoUsec_[0];
         tempo_         = tempoUsec_[0];
     }
-}
-
-void SmfPlayer::LoadMajorMidiSettings()
-{
-    settings_.Reset();
 }
 
 bool SmfPlayer::HasBpmOverride() const
