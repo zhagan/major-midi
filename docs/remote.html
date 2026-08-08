@@ -35,14 +35,15 @@
 
       body.remote-page .section {
         padding: 18px 20px;
+        min-width: 0;
       }
 
       body.remote-page #connect {
-        grid-column: span 5;
+        grid-column: span 7;
       }
 
       body.remote-page #status {
-        grid-column: span 3;
+        grid-column: span 5;
       }
 
       body.remote-page #transport {
@@ -63,6 +64,7 @@
       body.remote-page .grid-2,
       body.remote-page .transfer-grid {
         gap: 12px;
+        min-width: 0;
       }
 
       body.remote-page .uploader-card,
@@ -72,6 +74,16 @@
 
       body.remote-page .mini-card {
         padding: 12px 14px;
+        min-width: 0;
+        overflow: hidden;
+      }
+
+      body.remote-page #status h4,
+      body.remote-page #status p,
+      body.remote-page .status-pill {
+        max-width: 100%;
+        overflow-wrap: anywhere;
+        word-break: break-word;
       }
 
       body.remote-page .section h2 {
