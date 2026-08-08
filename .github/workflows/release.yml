@@ -53,7 +53,9 @@ jobs:
       - name: Upload build artifact
         uses: actions/upload-artifact@v7
         with:
-          name: MajorMIDI-${{ github.sha }}
+          # on pull_request, github.sha is the merge commit -- use the branch
+          # head so the artifact name matches a local `git rev-parse HEAD`
+          name: MajorMIDI-${{ github.event.pull_request.head.sha || github.sha }}
           path: build/MajorMIDI.bin
 
       - name: Publish release

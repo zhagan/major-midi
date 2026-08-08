@@ -4,18 +4,35 @@
 
 Major MIDI firmware builds with the libDaisy Make workflow for the Daisy Patch SM (STM32H750, Cortex-M7). The repo is self-contained — it pins its own dependencies as submodules under `lib/`, so no surrounding `DaisyExamples` checkout is needed.
 
-You need `arm-none-eabi-gcc` and `dfu-util` on the path. Everything below was verified against GNU Arm Embedded `10.3-2021.10`, which is what CI pins.
+### Prerequisites
+
+```sh
+brew install --cask gcc-arm-embedded   # arm-none-eabi-gcc
+brew install dfu-util                  # USB flashing
+```
+
+Everything below was verified against GNU Arm Embedded `10.3-2021.10`, which is what CI pins. Matching that version locally means your build and CI's are bit-for-bit identical, which makes the verification step below meaningful.
 
 ### Clone
 
-There is a nested submodule two levels deep, so `--recursive` is required:
+There is a nested submodule two levels deep (`lib/DaisySP` → `DaisySP-LGPL`), so **`--recursive` is required**:
 
 ```sh
 git clone --recursive git@github.com:zhagan/major-midi.git
 cd major-midi
 ```
 
-Already cloned without it? `git submodule update --init --recursive`.
+Without it the clone succeeds and then the firmware link fails on missing DaisySP-LGPL sources, since the Makefile sets `USE_DAISYSP_LGPL = 1`. If you already cloned without `--recursive`:
+
+```sh
+git submodule update --init --recursive
+```
+
+Confirm all four submodules landed on their pinned commits — a `+` or `-` prefix in this output means one drifted or never initialized:
+
+```sh
+git submodule status --recursive
+```
 
 ### Compile
 
@@ -28,6 +45,17 @@ make                      # build/MajorMIDI.bin
 ```
 
 `make clean` clears the firmware build only, not the libraries.
+
+### Verify the build
+
+CI builds every push and uploads the resulting `MajorMIDI.bin` as a run artifact. Since CI pins the same toolchain, a correct local build is byte-identical to it — which is the quickest way to confirm your dependency wiring is right rather than merely compiling:
+
+```sh
+gh run download --name "MajorMIDI-$(git rev-parse HEAD)" --dir /tmp/ci
+shasum -a 256 build/MajorMIDI.bin /tmp/ci/MajorMIDI.bin
+```
+
+A mismatch almost always means a submodule is off its pinned commit (check `git submodule status --recursive`) or the local toolchain is not `10.3-2021.10`.
 
 ### Flash
 
