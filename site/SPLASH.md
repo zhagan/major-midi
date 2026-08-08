@@ -16,11 +16,46 @@ Major MIDI is built for a modular workflow where a playback box needs to feel li
 | Saved song state | Recall per-song routing, loop, mix, and SF2 choices |
 | Browser remote & MIDI transfer | Load songs, mix channels, run transport, and upload `.mid` files over USB from Chrome or Edge |
 
+## At A Glance
+
+| | |
+| --- | --- |
+| Format | Eurorack, based on Daisy Patch SM (STM32H750) |
+| Sound | SoundFont 2 synth, up to 32 voices |
+| Storage | microSD card of `.mid` and `.sf2` files |
+| MIDI | USB and TRS (UART), in and out |
+| CV/Gate | 2 CV in, 2 CV out, 2 gate in, 2 gate out |
+| Control | Encoder, Play, 4 bank buttons, 4 knobs, sync switch |
+
+## Hardware Preview
+
+<div class="image-grid">
+  <figure class="image-card">
+    <div class="image-frame board-frame">
+      <img src="./assets/images/board-major-midi.png" alt="Major MIDI PCB layout" loading="lazy" />
+    </div>
+    <figcaption>The board layout shows the Daisy Patch SM footprint, LED positions, MIDI I/O, CV, gate, and audio jack placements.</figcaption>
+  </figure>
+  <figure class="image-card">
+    <div class="image-frame panel-frame">
+      <img src="./assets/images/panel-major-midi.png" alt="Major MIDI front panel layout" loading="lazy" />
+    </div>
+    <figcaption>The panel layout maps the screen, transport controls, bank buttons, channel knobs, and the patch points along the bottom edge.</figcaption>
+  </figure>
+</div>
+<figure class="image-card image-card-wide">
+  <div class="image-frame render-frame">
+    <img src="./assets/images/major-midi.png" alt="Major MIDI full module render" loading="lazy" />
+  </div>
+  <figcaption>The full module: Daisy Patch SM on the Major MIDI panel, with the display, transport and bank buttons, four performance knobs, and the CV, gate, and MIDI patch points.</figcaption>
+</figure>
+
 ## What The Site Covers
 
 This site is split into a few focused pages:
 
 - [User Manual](user.html) for the current operating guide.
+- [User Manual (PDF)](user_manual.pdf) to download the manual for offline reading or printing.
 - [Dev Resources](dev.html) for build notes, source layout, and docs workflow.
 - [Order](order.html) for hardware and ordering status.
 - [Transfer MIDI](transfer.html) to upload `.mid` files over USB from the browser.

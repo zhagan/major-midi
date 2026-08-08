@@ -26,6 +26,7 @@ body {
   min-height: 100%;
   margin: 0;
   font-family: "Trebuchet MS", "Segoe UI", Arial, sans-serif;
+  font-size: 15px;
   color: var(--ink);
   background:
     radial-gradient(circle at 12% 18%, rgba(182, 208, 93, 0.08), transparent 18%),
@@ -103,8 +104,8 @@ pre code {
 
 .brand h1 {
   margin: 0;
-  font-size: 2rem;
-  line-height: 0.95;
+  font-size: 1.65rem;
+  line-height: 1;
 }
 
 .brand p {
@@ -181,7 +182,7 @@ pre code {
 }
 
 .hero {
-  padding: 30px;
+  padding: 26px;
   margin-bottom: 24px;
 }
 
@@ -194,14 +195,15 @@ pre code {
 
 .hero h2 {
   margin: 0 0 0.9rem;
-  font-size: clamp(2rem, 4vw, 3.4rem);
-  line-height: 0.95;
+  font-size: clamp(1.7rem, 3vw, 2.6rem);
+  line-height: 1;
 }
 
 .hero p {
   margin: 0 0 1rem;
   color: var(--muted);
   max-width: 62ch;
+  font-size: 0.98rem;
 }
 
 .hero-card {
@@ -231,23 +233,23 @@ pre code {
 }
 
 .section {
-  padding: 26px 28px;
+  padding: 24px 26px;
   margin-bottom: 24px;
 }
 
 .section h2 {
   margin: 0 0 1rem;
-  font-size: 1.75rem;
+  font-size: 1.38rem;
 }
 
 .section h3 {
   margin: 1.8rem 0 0.7rem;
-  font-size: 1.15rem;
+  font-size: 1.02rem;
 }
 
 .section h4 {
   margin: 1.2rem 0 0.5rem;
-  font-size: 1rem;
+  font-size: 0.94rem;
 }
 
 .section p:first-child,
@@ -273,6 +275,76 @@ pre code {
   margin-top: 0;
 }
 
+.image-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin: 1rem 0;
+}
+
+.image-card {
+  margin: 1rem 0 0;
+}
+
+.image-card-wide {
+  margin-top: 1.1rem;
+}
+
+/* Standalone (non-grid) figures: cap display size so a full-width image
+   does not dominate the page. Centered; caps tuned per orientation. */
+.image-card-wide .image-frame {
+  max-width: 600px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.image-card-wide .panel-frame,
+.image-card-wide .board-frame {
+  max-width: 340px;
+}
+.image-card-wide figcaption {
+  text-align: center;
+}
+
+.image-frame {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+  background: rgba(10, 16, 11, 0.88);
+  box-shadow: var(--shadow);
+}
+
+.image-frame img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.board-frame {
+  background:
+    linear-gradient(180deg, rgba(18, 35, 20, 0.98), rgba(11, 24, 14, 0.98)),
+    #102314;
+}
+
+.panel-frame {
+  background:
+    linear-gradient(180deg, rgba(28, 28, 28, 0.98), rgba(12, 12, 12, 0.98)),
+    #111;
+}
+
+.render-frame {
+  background:
+    linear-gradient(180deg, rgba(244, 245, 240, 0.98), rgba(222, 225, 216, 0.98)),
+    #f1f3eb;
+  padding: 8px;
+}
+
+.image-card figcaption {
+  margin-top: 0.65rem;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
 .steps,
 .bullets {
   padding-left: 1.2rem;
@@ -290,7 +362,7 @@ pre code {
 table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
 }
 
 th,
@@ -302,7 +374,7 @@ td {
 }
 
 th {
-  font-size: 0.8rem;
+  font-size: 0.74rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
@@ -364,7 +436,7 @@ pre {
 .footer {
   padding: 16px 4px 40px;
   color: var(--muted);
-  font-size: 0.92rem;
+  font-size: 0.86rem;
 }
 
 .uploader-card {
@@ -544,7 +616,8 @@ pre {
 
   .hero-grid,
   .grid-2,
-  .transfer-grid {
+  .transfer-grid,
+  .image-grid {
     grid-template-columns: 1fr;
   }
 
@@ -566,6 +639,6 @@ pre {
   }
 
   .brand h1 {
-    font-size: 1.7rem;
+    font-size: 1.45rem;
   }
 }

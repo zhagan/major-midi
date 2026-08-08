@@ -31,6 +31,8 @@
         <p class="nav-label">On This Page</p>
         <nav class="nav section-nav">
           <a href="#why-major-midi">Why Major MIDI</a>
+          <a href="#at-a-glance">At A Glance</a>
+          <a href="#hardware-preview">Hardware Preview</a>
           <a href="#what-the-site-covers">What The Site Covers</a>
           <a href="#core-workflow">Core Workflow</a>
           <a href="#who-it-is-for">Who It Is For</a>
@@ -43,7 +45,7 @@
           <div class="hero-grid">
             <div>
               <h2>Major MIDI</h2>
-              <p>Midi File Player with Soundfount 2 Synth for Eurorack Modular</p>
+              <p>MIDI file player with SoundFont 2 synth for Eurorack modular</p>
             </div>
           </div>
         </section>
@@ -53,10 +55,37 @@
 <p>Major MIDI is built for a modular workflow where a playback box needs to feel like an instrument instead of a utility.</p>
 <div class="table-wrap"><table><thead><tr><th>Feature</th><th>What it gives you</th></tr></thead><tbody><tr><td>SD-based <code>.mid</code> playback</td><td>Bring complete songs, loops, sketches, or backing parts into the rack</td></tr><tr><td>SoundFont 2 synth engine</td><td>Play those MIDI files directly without an external synth</td></tr><tr><td>Front-panel channel control</td><td>Mix, mute, pan, and swap programs from the module</td></tr><tr><td>Internal or external sync</td><td>Run standalone or lock to the rest of the system</td></tr><tr><td>CV/gate integration</td><td>Patch transport, pitch, CC, clock, and gate behavior into the rack</td></tr><tr><td>Saved song state</td><td>Recall per-song routing, loop, mix, and SF2 choices</td></tr><tr><td>Browser remote &amp; MIDI transfer</td><td>Load songs, mix channels, run transport, and upload <code>.mid</code> files over USB from Chrome or Edge</td></tr></tbody></table></div>
 </section>
+<section class="section" id="at-a-glance">
+  <h2>At A Glance</h2>
+<div class="table-wrap"><table><thead><tr><th></th><th></th></tr></thead><tbody><tr><td>Format</td><td>Eurorack, based on Daisy Patch SM (STM32H750)</td></tr><tr><td>Sound</td><td>SoundFont 2 synth, up to 32 voices</td></tr><tr><td>Storage</td><td>microSD card of <code>.mid</code> and <code>.sf2</code> files</td></tr><tr><td>MIDI</td><td>USB and TRS (UART), in and out</td></tr><tr><td>CV/Gate</td><td>2 CV in, 2 CV out, 2 gate in, 2 gate out</td></tr><tr><td>Control</td><td>Encoder, Play, 4 bank buttons, 4 knobs, sync switch</td></tr></tbody></table></div>
+</section>
+<section class="section" id="hardware-preview">
+  <h2>Hardware Preview</h2>
+<div class="image-grid">
+  <figure class="image-card">
+    <div class="image-frame board-frame">
+      <img src="./assets/images/board-major-midi.png" alt="Major MIDI PCB layout" loading="lazy" />
+    </div>
+    <figcaption>The board layout shows the Daisy Patch SM footprint, LED positions, MIDI I/O, CV, gate, and audio jack placements.</figcaption>
+  </figure>
+  <figure class="image-card">
+    <div class="image-frame panel-frame">
+      <img src="./assets/images/panel-major-midi.png" alt="Major MIDI front panel layout" loading="lazy" />
+    </div>
+    <figcaption>The panel layout maps the screen, transport controls, bank buttons, channel knobs, and the patch points along the bottom edge.</figcaption>
+  </figure>
+</div>
+<figure class="image-card image-card-wide">
+  <div class="image-frame render-frame">
+    <img src="./assets/images/major-midi.png" alt="Major MIDI full module render" loading="lazy" />
+  </div>
+  <figcaption>The full module: Daisy Patch SM on the Major MIDI panel, with the display, transport and bank buttons, four performance knobs, and the CV, gate, and MIDI patch points.</figcaption>
+</figure>
+</section>
 <section class="section" id="what-the-site-covers">
   <h2>What The Site Covers</h2>
 <p>This site is split into a few focused pages:</p>
-<ul class="bullets"><li><a href="user.html">User Manual</a> for the current operating guide.</li><li><a href="dev.html">Dev Resources</a> for build notes, source layout, and docs workflow.</li><li><a href="order.html">Order</a> for hardware and ordering status.</li><li><a href="transfer.html">Transfer MIDI</a> to upload <code>.mid</code> files over USB from the browser.</li><li><a href="remote.html">Web Remote</a> to browse, load, and mix songs from the browser over USB.</li></ul>
+<ul class="bullets"><li><a href="user.html">User Manual</a> for the current operating guide.</li><li><a href="user_manual.pdf">User Manual (PDF)</a> to download the manual for offline reading or printing.</li><li><a href="dev.html">Dev Resources</a> for build notes, source layout, and docs workflow.</li><li><a href="order.html">Order</a> for hardware and ordering status.</li><li><a href="transfer.html">Transfer MIDI</a> to upload <code>.mid</code> files over USB from the browser.</li><li><a href="remote.html">Web Remote</a> to browse, load, and mix songs from the browser over USB.</li></ul>
 </section>
 <section class="section" id="core-workflow">
   <h2>Core Workflow</h2>

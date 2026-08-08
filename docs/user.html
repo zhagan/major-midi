@@ -69,6 +69,7 @@
   <h2>Quick Start</h2>
 <ol class="steps"><li>Copy one or more <code>.mid</code> files into <code>0:/midi</code>.</li><li>Copy one or more <code>.sf2</code> files into <code>0:/soundfonts</code>.</li><li>Insert the SD card and power the module.</li><li>Open the menu with a long encoder press.</li><li>Load a MIDI file from <code>Load MIDI</code>.</li><li>Load a SoundFont from <code>Load SF2</code>.</li><li>Return to the performance screen.</li><li>Press <code>Play</code>.</li></ol>
 <p>If the sync switch is set to external, playback will wait for external clock instead of free-running.</p>
+<p>Prefer to read offline? Download this manual as a PDF: <a href="user_manual.pdf">user_manual.pdf</a>.</p>
 </section>
 <section class="section" id="sd-card-layout">
   <h2>SD Card Layout</h2>
@@ -91,6 +92,12 @@
 </section>
 <section class="section" id="front-panel">
   <h2>Front Panel</h2>
+<figure class="image-card image-card-wide">
+  <div class="image-frame panel-frame">
+    <img src="./assets/images/panel-major-midi.png" alt="Major MIDI front panel layout" loading="lazy" />
+  </div>
+  <figcaption>Front panel: display, transport and bank buttons, four performance knobs, and the CV, gate, and MIDI patch points along the bottom edge.</figcaption>
+</figure>
 <div class="table-wrap"><table><thead><tr><th>Control</th><th>Role</th></tr></thead><tbody><tr><td><code>B1..B4</code></td><td>Bank buttons and view combos</td></tr><tr><td><code>K1..K4</code></td><td>Per-channel controls for the visible bank</td></tr><tr><td><code>Play</code></td><td>Transport and back/cancel in menus</td></tr><tr><td>Encoder turn</td><td>Page selection, menu navigation, loop edits, BPM edit</td></tr><tr><td>Encoder press</td><td>Shift, confirm, enter/exit edit modes</td></tr><tr><td>OLED</td><td>Current mode, transport, file names, and parameter values</td></tr></tbody></table></div>
 <p><code>B1..B4</code> each have an LED that flashes briefly whenever incoming MIDI activity hits a channel in that button&#x27;s bank, independent of which bank is currently selected on screen.</p>
 <p>The sync source is a hardware switch. Internal sync free-runs from the current BPM. External sync follows incoming MIDI clock or configured gate sync.</p>
@@ -118,6 +125,7 @@
 <p>To edit tempo:</p>
 <ol class="steps"><li>Turn the encoder until the active page is <code>BPM</code>.</li><li>Tap the encoder to unlock BPM editing.</li><li>Turn the encoder to set BPM from <code>20</code> to <code>300</code>.</li><li>Tap the encoder again to lock BPM.</li></ol>
 <p>BPM is hard-clamped to the 20-300 range everywhere it can be set (performance page, Song BPM override, and the web remote). If a song BPM override is saved for the current MIDI file, that override is applied when the song loads.</p>
+<p>When you change tempo during playback, Major MIDI glides to the new BPM instead of snapping to it — the transport ramps at up to 240 BPM per second so a large jump takes a moment to settle, keeping timing musical rather than jarring. This smoothing applies to tempo changes you make by hand (encoder or web remote); locking to external MIDI/gate clock tracks the incoming clock directly, and a tempo change made while looping re-seeks the loop instead of ramping.</p>
 </section>
 <section class="section" id="channel-focus">
   <h2>Channel Focus</h2>
@@ -173,7 +181,8 @@
 <section class="section" id="general">
   <h2>General</h2>
 <p>General settings:</p>
-<div class="table-wrap"><table><thead><tr><th>Item</th><th>Meaning</th></tr></thead><tbody><tr><td><code>Saver</code></td><td>Screen saver timeout: <code>Off</code>, <code>10s</code>, <code>30s</code>, <code>1m</code>, <code>2m</code>, <code>5m</code>, <code>10m</code>, <code>30m</code>, or <code>1h</code> (default <code>1h</code>)</td></tr><tr><td><code>Knobs</code></td><td><code>Pickup</code> or <code>Instant</code></td></tr><tr><td><code>Enc</code></td><td>Encoder direction</td></tr><tr><td><code>OLED X</code></td><td>Horizontal OLED column offset, <code>0</code>-<code>8</code></td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Item</th><th>Meaning</th></tr></thead><tbody><tr><td><code>Saver</code></td><td>Screen saver timeout: <code>Off</code>, <code>10s</code>, <code>30s</code>, <code>1m</code>, <code>2m</code>, <code>5m</code>, <code>10m</code>, <code>30m</code>, or <code>1h</code> (default <code>1h</code>)</td></tr><tr><td><code>Knobs</code></td><td><code>Pickup</code> or <code>Instant</code></td></tr><tr><td><code>Enc</code></td><td>Encoder direction</td></tr><tr><td><code>OLED X</code></td><td>Horizontal OLED column offset, <code>0</code>-<code>8</code></td></tr><tr><td><code>CV1 Scl</code></td><td>CV out 1 pitch-scale calibration, <code>90.0</code> - <code>110.0</code>% (default <code>102.8</code>%)</td></tr><tr><td><code>CV2 Scl</code></td><td>CV out 2 pitch-scale calibration, <code>90.0</code> - <code>110.0</code>% (default <code>102.8</code>%)</td></tr></tbody></table></div>
+<p><code>CV1 Scl</code> and <code>CV2 Scl</code> trim the 1V/octave scaling of each pitch CV output in <code>0.1</code>% steps. This calibration is global and shared across every song — it lives in the boot config, not the per-song <code>.cfg</code> — so you set it once for your rack. Raise the scale if each octave measures slightly flat, and lower it if each octave measures sharp.</p>
 <p>The screen saver only engages in performance mode, and only after the timeout has passed with no button/encoder/knob activity and no overlay message showing.</p>
 </section>
 <section class="section" id="fx">
@@ -222,7 +231,7 @@
 <p>CV output modes:</p>
 <div class="table-wrap"><table><thead><tr><th>Mode</th><th>Meaning</th></tr></thead><tbody><tr><td><code>Off</code></td><td>Disabled</td></tr><tr><td><code>Pitch</code></td><td>Output channel pitch</td></tr><tr><td><code>CC</code></td><td>Output a channel CC value</td></tr></tbody></table></div>
 <p>Each CV/gate page also exposes the related channel, CC number, sync resolution, trigger style, or note priority when that mode needs it.</p>
-<p>For pitch CV outputs, <code>O1 Scl</code> / <code>O2 Scl</code> trim the 1V/oct scaling from <code>90.0%</code> to <code>110.0%</code> in <code>0.1%</code> steps. Increase the scale if each octave measures slightly flat, and decrease it if each octave measures sharp. Pitch CV out runs 1V/octave from <code>C1</code> (0V) up to <code>5V</code> of headroom (about 10 octaves).</p>
+<p>Pitch CV out runs 1V/octave from <code>C1</code> (0V) up to <code>5V</code> of headroom (about 10 octaves). The 1V/oct scaling is trimmed with <code>CV1 Scl</code> / <code>CV2 Scl</code> in the <code>General</code> menu, not here — that calibration is global (shared across all songs), so it lives with the general settings rather than the per-song CV/Gate config. See <a href="#general">General</a> for the calibration procedure.</p>
 </section>
 <section class="section" id="sync">
   <h2>Sync</h2>

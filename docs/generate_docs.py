@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import html
 import re
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 
@@ -24,7 +27,7 @@ PAGES = [
         "label": "Home",
         "brand_title": "Major MIDI",
         "hero_title": "Major MIDI",
-        "hero_tagline": "Midi File Player with Soundfount 2 Synth for Eurorack Modular",
+        "hero_tagline": "MIDI file player with SoundFont 2 synth for Eurorack modular",
     },
     {
         "source": site_source("USER.md"),
@@ -388,9 +391,77 @@ def render_page(page: dict[str, object]) -> None:
     )
 
 
+def copy_static_assets() -> None:
+    source_assets = SITE_DIR / "assets"
+    if not source_assets.exists():
+        return
+
+    output_assets = DOCS_DIR / "assets"
+    shutil.copytree(source_assets, output_assets, dirs_exist_ok=True)
+
+
+CHROME_CANDIDATES = [
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    "google-chrome",
+    "google-chrome-stable",
+    "chromium",
+    "chromium-browser",
+]
+
+
+def find_chrome() -> str | None:
+    for candidate in CHROME_CANDIDATES:
+        if Path(candidate).is_file():
+            return candidate
+        found = shutil.which(candidate)
+        if found:
+            return found
+    return None
+
+
+def generate_user_manual_pdf() -> None:
+    """Best-effort PDF export of the user manual via headless Chrome.
+
+    Not required for the HTML site build: if Chrome isn't found, this
+    just prints a warning rather than failing the whole docs build.
+    """
+    user_html = DOCS_DIR / "user.html"
+    pdf_output = DOCS_DIR / "user_manual.pdf"
+    chrome = find_chrome()
+    if chrome is None:
+        print(
+            "warning: no Chrome/Chromium install found, skipping "
+            f"{pdf_output.name} generation",
+            file=sys.stderr,
+        )
+        return
+
+    result = subprocess.run(
+        [
+            chrome,
+            "--headless",
+            "--disable-gpu",
+            f"--print-to-pdf={pdf_output}",
+            "--print-to-pdf-no-header",
+            str(user_html),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0 or not pdf_output.exists():
+        print(
+            f"warning: PDF generation failed (exit {result.returncode}): "
+            f"{result.stderr.strip()}",
+            file=sys.stderr,
+        )
+
+
 def main() -> None:
     for page in PAGES:
         render_page(page)
+    copy_static_assets()
+    generate_user_manual_pdf()
 
 
 if __name__ == "__main__":
