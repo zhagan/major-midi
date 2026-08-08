@@ -1,4 +1,4 @@
-TARGET = SF2MidiPlayer
+TARGET = MajorMIDI
 
 # Build for Daisy Bootloader (store/execute app from QSPI, not internal FLASH)
 APP_TYPE = BOOT_QSPI
@@ -34,8 +34,8 @@ CPP_SOURCES = \
   src/ui/ui_renderer.cpp \
   src/midi/mixer_transport.cpp
 
-LIBDAISY_DIR = ../../libDaisy/
-DAISYSP_DIR  = ../../DaisySP/
+LIBDAISY_DIR = lib/libDaisy/
+DAISYSP_DIR  = lib/DaisySP/
 
 # Generate a link map to inspect size/symbol pulls
 # LDFLAGS += -Wl,-Map=build/$(TARGET).map,--cref

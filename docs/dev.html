@@ -6,7 +6,7 @@
     <title>Dev Resources | Major MIDI</title>
     <meta
       name="description"
-      content="Major MIDI firmware builds with the libDaisy Make workflow for the Daisy Patch SM (STM32H750, Cortex-M7)."
+      content="Major MIDI firmware builds with the libDaisy Make workflow for the Daisy Patch SM (STM32H750, Cortex-M7). The repo is self-contained — it pins its own dependencies as submodules under lib/, so no surrounding DaisyExamples checkout is needed."
     />
     <link rel="stylesheet" href="./styles.css" />
   </head>
@@ -31,6 +31,7 @@
         <p class="nav-label">On This Page</p>
         <nav class="nav section-nav">
           <a href="#build">Build</a>
+          <a href="#dependencies">Dependencies</a>
           <a href="#source-layout">Source Layout</a>
           <a href="#runtime-flow">Runtime Flow</a>
           <a href="#ui-architecture">UI Architecture</a>
@@ -55,17 +56,37 @@
 
         <section class="section" id="build">
   <h2>Build</h2>
-<p>Major MIDI firmware builds with the libDaisy Make workflow for the Daisy Patch SM (STM32H750, Cortex-M7).</p>
-<pre><code class="language-sh">make</code></pre>
-<p>That produces the Patch SM firmware image using the current <code>Makefile</code> target configuration.</p>
-<p>Useful commands:</p>
-<pre><code class="language-sh">make clean</code></pre>
+<p>Major MIDI firmware builds with the libDaisy Make workflow for the Daisy Patch SM (STM32H750, Cortex-M7). The repo is self-contained — it pins its own dependencies as submodules under <code>lib/</code>, so no surrounding <code>DaisyExamples</code> checkout is needed.</p>
+<p>You need <code>arm-none-eabi-gcc</code> and <code>dfu-util</code> on the path. Everything below was verified against GNU Arm Embedded <code>10.3-2021.10</code>, which is what CI pins.</p>
+<h3>Clone</h3>
+<p>There is a nested submodule two levels deep, so <code>--recursive</code> is required:</p>
+<pre><code class="language-sh">git clone --recursive git@github.com:zhagan/major-midi.git
+cd major-midi</code></pre>
+<p>Already cloned without it? <code>git submodule update --init --recursive</code>.</p>
+<h3>Compile</h3>
+<p>The two dependencies are static libraries and only need rebuilding when they change:</p>
+<pre><code class="language-sh">make -C lib/libDaisy      # libdaisy.a
+make -C lib/DaisySP       # libdaisysp.a + libdaisysp-lgpl.a
+make                      # build/MajorMIDI.bin</code></pre>
+<p><code>make clean</code> clears the firmware build only, not the libraries.</p>
+<h3>Flash</h3>
+<pre><code class="language-sh">make program-dfu     # app -&gt; QSPI 0x90040000
+make program-boot    # Daisy bootloader -&gt; internal flash 0x08000000 (once per board)</code></pre>
+<p><code>make program</code> is not usable here — it errors out for <code>BOOT_QSPI</code> app types by design. Tap <strong>RESET</strong> first; the bootloader&#x27;s DFU window is 2 seconds. See the README for the full flashing procedure and the bare-board bring-up case.</p>
 <p>Build context:</p>
-<div class="table-wrap"><table><thead><tr><th>Item</th><th>Notes</th></tr></thead><tbody><tr><td>Build system</td><td><code>make</code> via libDaisy</td></tr><tr><td>App target</td><td><code>BOOT_QSPI</code></td></tr><tr><td>Main firmware entry</td><td><code>src/main.cpp</code></td></tr><tr><td>Project config</td><td><code>Makefile</code></td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Item</th><th>Notes</th></tr></thead><tbody><tr><td>Build system</td><td><code>make</code> via libDaisy</td></tr><tr><td>App target</td><td><code>BOOT_QSPI</code> (runs from QSPI, launched by the Daisy bootloader)</td></tr><tr><td>Build output</td><td><code>build/MajorMIDI.bin</code> / <code>.elf</code> / <code>.hex</code></td></tr><tr><td>Main firmware entry</td><td><code>src/main.cpp</code></td></tr><tr><td>Project config</td><td><code>Makefile</code></td></tr><tr><td>Linker script</td><td><code>alt_sram.lds</code> (overrides libDaisy&#x27;s default QSPI script)</td></tr><tr><td>CI</td><td><code>.github/workflows/release.yml</code> — builds every PR, publishes release assets on a <code>v*</code> tag</td></tr></tbody></table></div>
+</section>
+<section class="section" id="dependencies">
+  <h2>Dependencies</h2>
+<div class="table-wrap"><table><thead><tr><th>Path</th><th>Upstream</th><th>Pinned at</th><th>Notes</th></tr></thead><tbody><tr><td><code>lib/libDaisy</code></td><td>Fork <a href="https://github.com/zhagan/libDaisy/tree/major-midi"><code>zhagan/libDaisy</code></a>, branch <code>major-midi</code></td><td><code>85172e2b</code> (v5.4.0-22) + 3 commits</td><td><strong>Modified</strong> — see below</td></tr><tr><td><code>lib/DaisySP</code></td><td><a href="https://github.com/electro-smith/DaisySP"><code>electro-smith/DaisySP</code></a></td><td><code>a0494a3</code> (V1.0.0)</td><td>Unmodified</td></tr><tr><td><code>lib/DaisySP/DaisySP-LGPL</code></td><td><a href="https://github.com/electro-smith/DaisySP-LGPL"><code>electro-smith/DaisySP-LGPL</code></a></td><td><code>c89d380</code></td><td>Unmodified. Required — the Makefile sets <code>USE_DAISYSP_LGPL = 1</code></td></tr><tr><td><code>src/synth/tsf.h</code></td><td><a href="https://github.com/schellingb/TinySoundFont"><code>schellingb/TinySoundFont</code></a></td><td>vendored copy</td><td>Modified in-tree; not a submodule, do not overwrite from upstream</td></tr></tbody></table></div>
+<p>The libDaisy fork is deliberately kept as three separate commits on top of a pinned upstream commit, so it can be rebased onto future libDaisy releases:</p>
+<ol class="steps"><li><strong><code>SSD130x</code>: batched I2C writes, column offset, chunked update.</strong> Upstream issues one 2-byte I2C transaction per pixel byte, which cannot refresh a 128x64 panel at UI rates. Adds 32-byte batching, <code>SetColumnOffset()</code>, and a chunked-update API that spreads a frame across several main-loop passes so the display never blocks audio or MIDI.</li><li><strong>MIDI: <code>StopReceive</code>/<code>StopRx</code>, <code>ServiceTx</code> hook, UART Tx size guard.</strong> Needed to tear down and re-establish UART MIDI when routing changes at runtime.</li><li><strong>USB descriptor: identify as &quot;Major MIDI&quot;</strong> on the external HS port, with a distinct PID (22337).</li></ol>
+<p>Changing a dependency means committing inside <code>lib/&lt;dep&gt;</code> first, then committing the updated submodule pointer in this repo. <code>lib/libDaisy/tests/googletest</code> is a nested submodule used only by libDaisy&#x27;s own unit tests and is not needed to build firmware.</p>
+<p>Licensing: libDaisy and <code>tsf.h</code> are MIT. <code>DaisySP-LGPL</code> is LGPL, so distributing binaries carries the obligation to let recipients relink against a modified version of that library — publishing full source and build instructions, as this repo does, satisfies it.</p>
 </section>
 <section class="section" id="source-layout">
   <h2>Source Layout</h2>
-<div class="table-wrap"><table><thead><tr><th>Path</th><th>Purpose</th></tr></thead><tbody><tr><td><code>src/main.cpp</code></td><td>App setup, boot sequence, transport loop, media reload, save flow, USB/UART MIDI wiring</td></tr><tr><td><code>src/app_state.h</code></td><td><code>AppState</code> — the single shared state struct for UI, transport, synth, routing, and CV/gate</td></tr><tr><td><code>src/ui/</code></td><td>Input scanning, event translation, UI state changes, OLED rendering</td></tr><tr><td><code>src/midi/</code></td><td>MIDI file playback, routing, media browser, scheduler, SysEx remote control and file transfer</td></tr><tr><td><code>src/synth/</code></td><td>SF2 synth integration (<code>synth_tsf.*</code>) plus the vendored <code>tsf.h</code> SoundFont renderer</td></tr><tr><td><code>src/cv/</code></td><td>CV/gate behavior</td></tr><tr><td><code>src/persist/</code></td><td>Boot state and per-song persistence</td></tr><tr><td><code>src/sd/</code></td><td>SD card mount</td></tr><tr><td><code>src/clock_sync.*</code></td><td>Internal/external sync arbitration (MIDI clock vs. gate sync)</td></tr><tr><td><code>docs/</code></td><td>Generated site output, CSS, and two hand-maintained standalone pages (<code>transfer.html</code>, <code>remote.html</code>)</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Path</th><th>Purpose</th></tr></thead><tbody><tr><td><code>src/main.cpp</code></td><td>App setup, boot sequence, transport loop, media reload, save flow, USB/UART MIDI wiring</td></tr><tr><td><code>src/app_state.h</code></td><td><code>AppState</code> — the single shared state struct for UI, transport, synth, routing, and CV/gate</td></tr><tr><td><code>src/ui/</code></td><td>Input scanning, event translation, UI state changes, OLED rendering</td></tr><tr><td><code>src/midi/</code></td><td>MIDI file playback, routing, media browser, scheduler, SysEx remote control and file transfer</td></tr><tr><td><code>src/synth/</code></td><td>SF2 synth integration (<code>synth_tsf.*</code>) plus the vendored <code>tsf.h</code> SoundFont renderer</td></tr><tr><td><code>src/cv/</code></td><td>CV/gate behavior</td></tr><tr><td><code>src/persist/</code></td><td>Boot state and per-song persistence</td></tr><tr><td><code>src/sd/</code></td><td>SD card mount</td></tr><tr><td><code>src/clock_sync.*</code></td><td>Internal/external sync arbitration (MIDI clock vs. gate sync)</td></tr><tr><td><code>lib/</code></td><td>Pinned dependency submodules — see Dependencies above</td></tr><tr><td><code>docs/</code></td><td>Generated site output, CSS, and two hand-maintained standalone pages (<code>transfer.html</code>, <code>remote.html</code>)</td></tr></tbody></table></div>
 </section>
 <section class="section" id="runtime-flow">
   <h2>Runtime Flow</h2>

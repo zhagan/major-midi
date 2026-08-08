@@ -463,6 +463,22 @@ There are two ways to write settings to disk, both scoped to the currently loade
 
 For reliability, prefer `Save All` when you have time for the confirmation step; use `Save Song CFG` for a fast save between takes.
 
+## Firmware Updates
+
+Your module ships with firmware already installed, so there is nothing to flash to get started. This section is only for moving to a newer release.
+
+Updating needs no toolchain — just a USB cable and a browser:
+
+1. Download `MajorMIDI.bin` from the [latest release](https://github.com/zhagan/major-midi/releases/latest).
+2. Connect the module to your computer over USB.
+3. Tap the `RESET` button on the Daisy board. This opens a 2-second window where the module accepts a firmware update.
+4. Within that window, open the [Electro-Smith Web Programmer](https://electro-smith.github.io/Programmer/) in Chrome or Edge, connect to the module, select `MajorMIDI.bin`, and flash it to the **QSPI** target.
+5. Power-cycle the module when it finishes.
+
+If the programmer does not see the module, the 2-second window has almost certainly closed — tap `RESET` again and reconnect straight away.
+
+Updating firmware does not erase your SD card, so your `.mid` files, SoundFonts, and saved `.cfg` song settings all carry over. If you prefer the command line, or you are building your own module from a bare Daisy Patch SM, the repository README covers `dfu-util` and first-time bootloader setup.
+
 ## Troubleshooting
 
 | Problem | Check |
