@@ -8,7 +8,7 @@ The user-facing guide lives in `site/USER.md`. The generated docs site in `docs/
 
 ## Installing / updating firmware
 
-**If you just want to update your module, you do not need a toolchain.** Download `SF2MidiPlayer.bin` from the [latest release](../../releases/latest) and flash it.
+**If you just want to update your module, you do not need a toolchain.** Download `MajorMIDI.bin` from the [latest release](../../releases/latest) and flash it.
 
 Major MIDI is a `BOOT_QSPI` application: it lives in QSPI flash at `0x90040000` and is launched by the Daisy bootloader in internal flash. That means there are two distinct steps, and **step 1 only needs doing once per module.**
 
@@ -38,12 +38,12 @@ dfu-util -a 0 -s 0x08000000:leave -D dsy_bootloader_v6_2-intdfu-2000ms.bin -d ,0
 
 Tap **RESET**. The bootloader opens a 2-second DFU window on power-up — flash within that window.
 
-**Option A — browser (no install).** Open the [Electro-Smith Web Programmer](https://electro-smith.github.io/Programmer/) in Chrome or Edge, connect the module over USB while it is in that DFU window, select `SF2MidiPlayer.bin`, and flash to the **QSPI** target.
+**Option A — browser (no install).** Open the [Electro-Smith Web Programmer](https://electro-smith.github.io/Programmer/) in Chrome or Edge, connect the module over USB while it is in that DFU window, select `MajorMIDI.bin`, and flash to the **QSPI** target.
 
 **Option B — `dfu-util`.**
 
 ```sh
-dfu-util -a 0 -s 0x90040000:leave -D SF2MidiPlayer.bin -d ,0483:df11
+dfu-util -a 0 -s 0x90040000:leave -D MajorMIDI.bin -d ,0483:df11
 ```
 
 Power-cycle when it completes. The module enumerates over USB as **Major MIDI**.
@@ -85,7 +85,7 @@ The dependencies are static libraries and only need rebuilding when they change:
 ```sh
 make -C lib/libDaisy      # builds libdaisy.a
 make -C lib/DaisySP       # builds libdaisysp.a and libdaisysp-lgpl.a
-make                      # builds build/SF2MidiPlayer.bin
+make                      # builds build/MajorMIDI.bin
 ```
 
 `make clean` clears the firmware build only, not the libraries.

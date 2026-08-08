@@ -1,4 +1,4 @@
-TARGET = SF2MidiPlayer
+TARGET = MajorMIDI
 
 # Build for Daisy Bootloader (store/execute app from QSPI, not internal FLASH)
 APP_TYPE = BOOT_QSPI
