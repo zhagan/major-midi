@@ -1,15 +1,16 @@
 # Major MIDI — Todo List
 
-1. **CV fine-tuning: make it global, not per-song.**
-   Currently CV output calibration/fine-tuning lives in the per-song config
-   (`src/persist/song_config_persist.cpp`). Change it to a single value set
-   once at device initialization, not stored per-song. Default value: 102.8.
+1. **[DONE] CV fine-tuning: make it global, not per-song.**
+   Done — `cv1_pitch_scale`/`cv2_pitch_scale` moved out of the per-song
+   config into two global `AppState` fields (default 102.8), persisted in the
+   boot config (`MMBT` v6->v7) and edited from the General settings menu.
+   Song config dropped to its pre-pitch-scale layout (`MMSC` v12).
 
-2. **Smooth tempo transitions on user tempo changes.**
-   When the user increases/decreases tempo during playback, the MIDI file
-   should smoothly speed up/slow down rather than jumping abruptly to the
-   new tempo. Likely touches `src/midi/scheduler.*` and
-   `src/midi/mixer_transport.*`. this will be difficult
+2. **[DONE] Smooth tempo transitions on user tempo changes.**
+   Done — hand-driven tempo changes now glide via bounded per-`Update` steps
+   (`kTempoRampBpmPerSecond = 240`) in `src/midi/mixer_transport.*` instead of
+   snapping. The same change also fixed hung notes when tempo changed during a
+   loop (flush loop-boundary notes before `ClearQueues()`).
 
 3. **Improve the web remote control page (`docs/remote.html`).**
    Expose more of the SysEx remote-control protocol's functionality and
@@ -20,6 +21,7 @@
    write chunk to 2x current, to test display update throughput.
 
 5. **Finalize documentation, especially the user manual.**
-   Bring `site/USER.md` / `docs/user.html` up to date and complete, and add
-   a PDF export of the user manual (not currently produced by
-   `docs/generate_docs.py`).
+   Ongoing — `site/USER.md` / `docs/user.html` have been refreshed against the
+   current firmware. Still to do: a PDF export of the user manual (not
+   currently produced by `docs/generate_docs.py`). Keep the manual in sync as
+   features land.

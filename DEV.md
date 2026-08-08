@@ -90,7 +90,7 @@ The playback path is spread across the MIDI and synth modules:
 | Area | Notes |
 | --- | --- |
 | `src/midi/smf_player.*` | MIDI file parsing, playback state, transport |
-| `src/midi/mixer_transport.*` | Channel state, mixing, timing, and transport-facing playback logic. Global transpose (`sf2_transpose`) explicitly skips the drum channel (index 9 / MIDI channel 10). |
+| `src/midi/mixer_transport.*` | Channel state, mixing, timing, and transport-facing playback logic. Global transpose (`sf2_transpose`) explicitly skips the drum channel (index 9 / MIDI channel 10). Hand-driven tempo changes (encoder / web remote, not clock sync and not while looping) glide via bounded per-`Update` steps (`kTempoRampBpmPerSecond = 240`) reusing the instant-apply path (`SetTempoScale` / `RemapQueuedEventTimes` / `phase_start_ticks_` recalibration) with a small delta; the tempo-change-during-loop branch flushes loop-boundary notes before `ClearQueues()` so a sounding note's Note-Off is never dropped. |
 | `src/midi/media_library.*` | Live, per-folder SD-card browsing — no whole-card scan or global file-count cap. Files are identified by relative path (e.g. `set1/track01.mid`), not index; `AppState::selected_midi_path`/`selected_sf2_path` carry that identity directly. A single folder's browser view still caps at `kMaxMidiBrowserEntries=128` / `kMaxSf2BrowserEntries=32` entries (front panel) — split a very large folder into subfolders if you hit that. `FindFirstMidiFile()`/`FindFirstSoundFont()` do an early-exit recursive walk, used only as a fallback when the previously-selected file is gone. |
 | `src/midi/scheduler.*` | Scheduled MIDI output timing |
 | `src/synth/synth_tsf.*` | SoundFont loading and synth voice handling. Voices field is `0`-`32`; `0` disables the synth entirely. FX (reverb/chorus) auto-bypass at ≥16 active voices and restore at ≤12 (hysteresis), to protect CPU headroom. |
@@ -158,8 +158,8 @@ Major MIDI has two active persistence scopes, both implemented directly in `src/
 
 | Scope | File | Magic/Version | Notes |
 | --- | --- | --- | --- |
-| Boot/global | `0:/major_midi_boot.cfg` | `MMBT`, v6 | Last MIDI filename, `screen_saver_timeout_s`, `knob_pickup_mode`, `encoder_direction`, `oled_x_offset` |
-| Per-song | `<selected-midi>.cfg` | `MMSC`, v11 (335 bytes) | Both CV inputs, both gate inputs/outputs, both CV outputs, USB+UART MIDI output routing (mode, transport/clock flags, full 16-channel matrix), all 16 `ChannelState` entries + mute mask, loop state, `song_bpm_override`, SF2 FX-scaler caps, `sf2_transpose`, and the SF2 filename |
+| Boot/global | `0:/major_midi_boot.cfg` | `MMBT`, v7 | Last MIDI filename, `screen_saver_timeout_s`, `knob_pickup_mode`, `encoder_direction`, `oled_x_offset`, and (added in v7) the global `cv1_pitch_scale` / `cv2_pitch_scale` CV-output calibration |
+| Per-song | `<selected-midi>.cfg` | `MMSC`, v12 | Both CV inputs, both gate inputs/outputs, both CV outputs, USB+UART MIDI output routing (mode, transport/clock flags, full 16-channel matrix), all 16 `ChannelState` entries + mute mask, loop state, `song_bpm_override`, SF2 FX-scaler caps, `sf2_transpose`, and the SF2 filename. v12 dropped the per-output pitch-scale fields (moved to the global boot config); it still loads v8-v11 files, skipping their legacy pitch-scale bytes |
 
 Relevant code:
 

@@ -124,6 +124,8 @@ To edit tempo:
 
 BPM is hard-clamped to the 20-300 range everywhere it can be set (performance page, Song BPM override, and the web remote). If a song BPM override is saved for the current MIDI file, that override is applied when the song loads.
 
+When you change tempo during playback, Major MIDI glides to the new BPM instead of snapping to it — the transport ramps at up to 240 BPM per second so a large jump takes a moment to settle, keeping timing musical rather than jarring. This smoothing applies to tempo changes you make by hand (encoder or web remote); locking to external MIDI/gate clock tracks the incoming clock directly, and a tempo change made while looping re-seeks the loop instead of ramping.
+
 ## Channel Focus
 
 Long-press one of `B1..B4` in performance mode to focus that visible channel. This is disabled while the `Mute` knob page is active — on that page, a plain press of `B1..B4` toggles mute directly instead (see Mute Page below).
@@ -264,6 +266,10 @@ General settings:
 | `Knobs` | `Pickup` or `Instant` |
 | `Enc` | Encoder direction |
 | `OLED X` | Horizontal OLED column offset, `0`-`8` |
+| `CV1 Scl` | CV out 1 pitch-scale calibration, `90.0` - `110.0`% (default `102.8`%) |
+| `CV2 Scl` | CV out 2 pitch-scale calibration, `90.0` - `110.0`% (default `102.8`%) |
+
+`CV1 Scl` and `CV2 Scl` trim the 1V/octave scaling of each pitch CV output in `0.1`% steps. This calibration is global and shared across every song — it lives in the boot config, not the per-song `.cfg` — so you set it once for your rack. Raise the scale if each octave measures slightly flat, and lower it if each octave measures sharp.
 
 The screen saver only engages in performance mode, and only after the timeout has passed with no button/encoder/knob activity and no overlay message showing.
 
@@ -404,7 +410,7 @@ CV output modes:
 
 Each CV/gate page also exposes the related channel, CC number, sync resolution, trigger style, or note priority when that mode needs it.
 
-For pitch CV outputs, `O1 Scl` / `O2 Scl` trim the 1V/oct scaling from `90.0%` to `110.0%` in `0.1%` steps. Increase the scale if each octave measures slightly flat, and decrease it if each octave measures sharp. Pitch CV out runs 1V/octave from `C1` (0V) up to `5V` of headroom (about 10 octaves).
+Pitch CV out runs 1V/octave from `C1` (0V) up to `5V` of headroom (about 10 octaves). The 1V/oct scaling is trimmed with `CV1 Scl` / `CV2 Scl` in the `General` menu, not here — that calibration is global (shared across all songs), so it lives with the general settings rather than the per-song CV/Gate config. See [General](#general) for the calibration procedure.
 
 ## Sync
 
