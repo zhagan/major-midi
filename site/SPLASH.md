@@ -2,6 +2,22 @@
 
 Major MIDI turns Daisy Patch SM (STM32H750, Cortex-M7) into a compact Eurorack MIDI file player with a built-in SoundFont 2 synth, live MIDI performance controls, sync options, and modular CV/gate integration.
 
+## The Intention of Major MIDI
+
+Major MIDI is designed to be collaborative and open source. The work does not end with me. It is an invitation to the community to take this creation and bend it, tweak it, extend it, and even break it to serve their own needs. Its continued evolution should be shaped not only by its original design, but by the musicians, programmers, builders, and experimenters who discover possibilities in it that I never anticipated.
+
+Major MIDI is built upon older technologies, much as music itself is built upon the music that came before it. MIDI, General MIDI, MIDI files, and SoundFonts may come from an earlier era of electronic music, but they remain remarkably useful forms of musical communication. They provide a shared vocabulary—one that can be reinterpreted rather than simply preserved. Major MIDI draws upon that vocabulary without treating it as a rigid standard or a finished idea.
+
+Without reference, there is no continuity. But continuity does not mean standing still. As musicians and makers, we must continually evolve, expanding both our musical vocabulary and the technologies we use to create. Innovation does not always require abandoning what came before. Sometimes it means taking familiar ideas out of their original context, combining them with newer tools, and discovering what they can become.
+
+That is central to Major MIDI’s place in a modular system. It brings the structure and memory of MIDI into an environment built around voltage, immediacy, experimentation, and unpredictability. It is meant to connect different generations of musical technology: stored compositions and live performance, MIDI instruments and Eurorack modules, precise sequencing and hands-on control. Rather than forcing one world to behave like the other, Major MIDI is intended to let them interact.
+
+The physical interface is part of that intention. Major MIDI is not meant to hide its capabilities behind a computer or require the musician to stop creating in order to configure it. The display, controls, connections, and software should make it feel like an instrument—something that can be explored, performed, and understood through use. Its technical complexity should create musical possibilities rather than become an obstacle to them.
+
+Major MIDI is also deliberately imperfect and unfinished. It is informed by General MIDI, but it is not an attempt to reproduce every part of the standard or remain fully compliant with it. It takes the elements that remain musically valuable and places them inside a new, open-ended instrument. The goal is not historical preservation for its own sake, but creative reuse.
+
+Major MIDI is therefore an ode to the past with an eye toward the future: a tool shaped by what came before, built for the way musicians work now, and left open for others to imagine what comes next.
+
 ## Why Major MIDI
 
 Major MIDI is built for a modular workflow where a playback box needs to feel like an instrument instead of a utility.
