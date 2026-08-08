@@ -6,15 +6,31 @@ The user-facing guide lives in `site/USER.md`. The generated docs site in `docs/
 
 ---
 
-## Installing / updating firmware
+## Updating firmware
 
-**If you just want to update your module, you do not need a toolchain.** Download `MajorMIDI.bin` from the [latest release](../../releases/latest) and flash it.
+Major MIDI ships as a complete Eurorack module with firmware already installed, an SD card, and a power cable. **You do not need this section to start using one** — it covers updating an existing module, and bringing up a bare Daisy Patch SM from scratch.
 
-Major MIDI is a `BOOT_QSPI` application: it lives in QSPI flash at `0x90040000` and is launched by the Daisy bootloader in internal flash. That means there are two distinct steps, and **step 1 only needs doing once per module.**
+Major MIDI is a `BOOT_QSPI` application: it lives in QSPI flash at `0x90040000` and is launched by the Daisy bootloader in internal flash. Shipped modules already have that bootloader.
 
-### Step 1 — flash the Daisy bootloader (one time only)
+### Updating a module
 
-A stock Daisy Patch SM does **not** ship with the Daisy bootloader. If you skip this step, flashing the app appears to succeed and the module does nothing on power-up.
+No toolchain required. Download `MajorMIDI.bin` from the [latest release](../../releases/latest), then tap **RESET** — the bootloader opens a 2-second DFU window on power-up, and you flash within it.
+
+**Option A — browser (no install).** Open the [Electro-Smith Web Programmer](https://electro-smith.github.io/Programmer/) in Chrome or Edge, connect the module over USB while it is in that DFU window, select `MajorMIDI.bin`, and flash to the **QSPI** target.
+
+**Option B — `dfu-util`.**
+
+```sh
+dfu-util -a 0 -s 0x90040000:leave -D MajorMIDI.bin -d ,0483:df11
+```
+
+Power-cycle when it completes. The module enumerates over USB as **Major MIDI**.
+
+> If the board does not appear, it is almost always the DFU window having closed — tap **RESET** and retry immediately. `dfu-util -l` is the quickest way to confirm the host sees the device before committing to a flash.
+
+### First-time bring-up on a bare Patch SM
+
+Only needed if you are building your own module from a stock Daisy Patch SM. A stock board does **not** ship with the Daisy bootloader, and without it flashing the app appears to succeed while the module does nothing on power-up.
 
 Put the board into the STM32 system bootloader: hold **BOOT**, tap **RESET**, then release **BOOT**. Confirm the host sees it:
 
@@ -34,21 +50,7 @@ Or directly, using `dsy_bootloader_v6_2-intdfu-2000ms.bin` from a libDaisy check
 dfu-util -a 0 -s 0x08000000:leave -D dsy_bootloader_v6_2-intdfu-2000ms.bin -d ,0483:df11
 ```
 
-### Step 2 — flash Major MIDI
-
-Tap **RESET**. The bootloader opens a 2-second DFU window on power-up — flash within that window.
-
-**Option A — browser (no install).** Open the [Electro-Smith Web Programmer](https://electro-smith.github.io/Programmer/) in Chrome or Edge, connect the module over USB while it is in that DFU window, select `MajorMIDI.bin`, and flash to the **QSPI** target.
-
-**Option B — `dfu-util`.**
-
-```sh
-dfu-util -a 0 -s 0x90040000:leave -D MajorMIDI.bin -d ,0483:df11
-```
-
-Power-cycle when it completes. The module enumerates over USB as **Major MIDI**.
-
-> If the board does not appear, it is almost always the DFU window having closed — tap **RESET** and retry immediately. `dfu-util -l` is the quickest way to confirm the host sees the device before committing to a flash.
+Then flash the app as described under **Updating a module** above. This is a one-time step per board.
 
 ---
 

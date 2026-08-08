@@ -2,28 +2,72 @@
 
 ## Build
 
-Major MIDI firmware builds with the libDaisy Make workflow for the Daisy Patch SM (STM32H750, Cortex-M7).
+Major MIDI firmware builds with the libDaisy Make workflow for the Daisy Patch SM (STM32H750, Cortex-M7). The repo is self-contained — it pins its own dependencies as submodules under `lib/`, so no surrounding `DaisyExamples` checkout is needed.
+
+You need `arm-none-eabi-gcc` and `dfu-util` on the path. Everything below was verified against GNU Arm Embedded `10.3-2021.10`, which is what CI pins.
+
+### Clone
+
+There is a nested submodule two levels deep, so `--recursive` is required:
 
 ```sh
-make
+git clone --recursive git@github.com:zhagan/major-midi.git
+cd major-midi
 ```
 
-That produces the Patch SM firmware image using the current `Makefile` target configuration.
+Already cloned without it? `git submodule update --init --recursive`.
 
-Useful commands:
+### Compile
+
+The two dependencies are static libraries and only need rebuilding when they change:
 
 ```sh
-make clean
+make -C lib/libDaisy      # libdaisy.a
+make -C lib/DaisySP       # libdaisysp.a + libdaisysp-lgpl.a
+make                      # build/MajorMIDI.bin
 ```
+
+`make clean` clears the firmware build only, not the libraries.
+
+### Flash
+
+```sh
+make program-dfu     # app -> QSPI 0x90040000
+make program-boot    # Daisy bootloader -> internal flash 0x08000000 (once per board)
+```
+
+`make program` is not usable here — it errors out for `BOOT_QSPI` app types by design. Tap **RESET** first; the bootloader's DFU window is 2 seconds. See the README for the full flashing procedure and the bare-board bring-up case.
 
 Build context:
 
 | Item | Notes |
 | --- | --- |
 | Build system | `make` via libDaisy |
-| App target | `BOOT_QSPI` |
+| App target | `BOOT_QSPI` (runs from QSPI, launched by the Daisy bootloader) |
+| Build output | `build/MajorMIDI.bin` / `.elf` / `.hex` |
 | Main firmware entry | `src/main.cpp` |
 | Project config | `Makefile` |
+| Linker script | `alt_sram.lds` (overrides libDaisy's default QSPI script) |
+| CI | `.github/workflows/release.yml` — builds every PR, publishes release assets on a `v*` tag |
+
+## Dependencies
+
+| Path | Upstream | Pinned at | Notes |
+| --- | --- | --- | --- |
+| `lib/libDaisy` | Fork [`zhagan/libDaisy`](https://github.com/zhagan/libDaisy/tree/major-midi), branch `major-midi` | `85172e2b` (v5.4.0-22) + 3 commits | **Modified** — see below |
+| `lib/DaisySP` | [`electro-smith/DaisySP`](https://github.com/electro-smith/DaisySP) | `a0494a3` (V1.0.0) | Unmodified |
+| `lib/DaisySP/DaisySP-LGPL` | [`electro-smith/DaisySP-LGPL`](https://github.com/electro-smith/DaisySP-LGPL) | `c89d380` | Unmodified. Required — the Makefile sets `USE_DAISYSP_LGPL = 1` |
+| `src/synth/tsf.h` | [`schellingb/TinySoundFont`](https://github.com/schellingb/TinySoundFont) | vendored copy | Modified in-tree; not a submodule, do not overwrite from upstream |
+
+The libDaisy fork is deliberately kept as three separate commits on top of a pinned upstream commit, so it can be rebased onto future libDaisy releases:
+
+1. **`SSD130x`: batched I2C writes, column offset, chunked update.** Upstream issues one 2-byte I2C transaction per pixel byte, which cannot refresh a 128x64 panel at UI rates. Adds 32-byte batching, `SetColumnOffset()`, and a chunked-update API that spreads a frame across several main-loop passes so the display never blocks audio or MIDI.
+2. **MIDI: `StopReceive`/`StopRx`, `ServiceTx` hook, UART Tx size guard.** Needed to tear down and re-establish UART MIDI when routing changes at runtime.
+3. **USB descriptor: identify as "Major MIDI"** on the external HS port, with a distinct PID (22337).
+
+Changing a dependency means committing inside `lib/<dep>` first, then committing the updated submodule pointer in this repo. `lib/libDaisy/tests/googletest` is a nested submodule used only by libDaisy's own unit tests and is not needed to build firmware.
+
+Licensing: libDaisy and `tsf.h` are MIT. `DaisySP-LGPL` is LGPL, so distributing binaries carries the obligation to let recipients relink against a modified version of that library — publishing full source and build instructions, as this repo does, satisfies it.
 
 ## Source Layout
 
@@ -38,6 +82,7 @@ Build context:
 | `src/persist/` | Boot state and per-song persistence |
 | `src/sd/` | SD card mount |
 | `src/clock_sync.*` | Internal/external sync arbitration (MIDI clock vs. gate sync) |
+| `lib/` | Pinned dependency submodules — see Dependencies above |
 | `docs/` | Generated site output, CSS, and two hand-maintained standalone pages (`transfer.html`, `remote.html`) |
 
 ## Runtime Flow

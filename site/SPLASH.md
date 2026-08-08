@@ -26,6 +26,7 @@ Major MIDI is built for a modular workflow where a playback box needs to feel li
 | MIDI | USB and TRS (UART), in and out |
 | CV/Gate | 2 CV in, 2 CV out, 2 gate in, 2 gate out |
 | Control | Encoder, Play, 4 bank buttons, 4 knobs, sync switch |
+| In the box | Complete assembled module with firmware installed, SD card, power cable |
 
 ## Hardware Preview
 

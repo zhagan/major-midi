@@ -51,6 +51,7 @@
           <a href="#cv-gate">CV/Gate</a>
           <a href="#sync">Sync</a>
           <a href="#saving-and-recall">Saving And Recall</a>
+          <a href="#firmware-updates">Firmware Updates</a>
           <a href="#troubleshooting">Troubleshooting</a>
         </nav>
       </aside>
@@ -249,6 +250,14 @@
 <p><code>Save All</code> stores:</p>
 <div class="table-wrap"><table><thead><tr><th>Saved state</th></tr></thead><tbody><tr><td>Selected SF2 for the current song</td></tr><tr><td>Channel mix, mute, and program override state</td></tr><tr><td>Song loop data</td></tr><tr><td>MIDI routing</td></tr><tr><td>CV/gate assignments</td></tr><tr><td>General UI settings and last boot MIDI selection</td></tr></tbody></table></div>
 <p>For reliability, prefer <code>Save All</code> when you have time for the confirmation step; use <code>Save Song CFG</code> for a fast save between takes.</p>
+</section>
+<section class="section" id="firmware-updates">
+  <h2>Firmware Updates</h2>
+<p>Your module ships with firmware already installed, so there is nothing to flash to get started. This section is only for moving to a newer release.</p>
+<p>Updating needs no toolchain — just a USB cable and a browser:</p>
+<ol class="steps"><li>Download <code>MajorMIDI.bin</code> from the <a href="https://github.com/zhagan/major-midi/releases/latest">latest release</a>.</li><li>Connect the module to your computer over USB.</li><li>Tap the <code>RESET</code> button on the Daisy board. This opens a 2-second window where the module accepts a firmware update.</li><li>Within that window, open the <a href="https://electro-smith.github.io/Programmer/">Electro-Smith Web Programmer</a> in Chrome or Edge, connect to the module, select <code>MajorMIDI.bin</code>, and flash it to the <strong>QSPI</strong> target.</li><li>Power-cycle the module when it finishes.</li></ol>
+<p>If the programmer does not see the module, the 2-second window has almost certainly closed — tap <code>RESET</code> again and reconnect straight away.</p>
+<p>Updating firmware does not erase your SD card, so your <code>.mid</code> files, SoundFonts, and saved <code>.cfg</code> song settings all carry over. If you prefer the command line, or you are building your own module from a bare Daisy Patch SM, the repository README covers <code>dfu-util</code> and first-time bootloader setup.</p>
 </section>
 <section class="section" id="troubleshooting">
   <h2>Troubleshooting</h2>
